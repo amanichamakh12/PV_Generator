@@ -492,7 +492,6 @@ async function extractFile() {
   const formData = new FormData();
   formData.append("file", state.file);
   
-  // ✅ Ajout session_info — utilise state.sessionInfo si disponible, sinon objet vide
   const sessionInfo = state.sessionInfo ?? {};
   formData.append("session_info", JSON.stringify(sessionInfo));
 
