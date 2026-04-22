@@ -1,0 +1,290 @@
+Procès-verbal de réunion
+Date : 19/04/2026
+==================================================
+
+1. Ordre du jour et contenu des slides
+
+Slide 1 :
+COMITÉ DE PILOTAGE
+Transformation Digitale
+Revue trimestrielle Q2 2025
+Date :
+18 juin 2025
+Heure :
+09h00 – 12h30
+Lieu :
+Salle Innovation — Siège
+Président :
+M. Tarek Belhaj, DG
+CONFIDENTIEL — Usage interne
+----------------------------------------
+Slide 2 :
+PARTICIPANTS & ORDRE DU JOUR
+Nom & Prénom
+Fonction
+Présence
+M. Tarek Belhaj
+Directeur Général
+Présent
+Mme. Sarra Hamdi
+Directrice Transformation
+Présent
+M. Amine Khelil
+DSI
+Présent
+Mme. Leila Mansour
+DAF
+Présent
+M. Riadh Sfaxi
+DRH
+Présent
+M. Karim Jaziri
+Dir. Commercial
+Présent
+Mme. Fatma Triki
+Dir. Qualité
+Excusée
+M. Nabil Ouali
+Chef Projet Digital
+Présent
+ORDRE DU JOUR
+1. Bilan financier S1 2025
+2. Avancement des chantiers digitaux
+3. Point RH & Compétences
+4. Résultats commerciaux & CRM
+5. Risques & Conformité
+6. Décisions & Plan d'action Q3
+----------------------------------------
+Slide 3 :
+1. BILAN FINANCIER S1 2025
+Chiffre d'affaires
+12,4 M€
++11%
+vs S1 2024
+Marge brute
+44,2%
++2,1pt
+vs objectif
+OPEX Digital
+3,1 M€
++28%
+budget +15%
+EBITDA ajusté
+18,7%
+-0,5pt
+objectif 20%
+Analyse :
+Le CA S1 dépasse les prévisions grâce à la performance commerciale du T2. Cependant, la dérive des OPEX digitaux (+28% vs budget) résulte des surcoûts de la migration ERP. Une revue budgétaire est proposée pour le S2.
+Présenté par : Mme. Leila Mansour, DAF
+----------------------------------------
+Slide 4 :
+2a. CHANTIER DIGITAL — Migration ERP
+🟡  Statut global : EN COURS — Retard de 3 semaines sur phase 3
+Budget consommé : 2,1 M€ / 2,8 M€ (75%)
+Avancement par phase :
+Phase 1 — Analyse & specs
+100%
+✓
+Phase 2 — Paramétrage
+100%
+✓
+Phase 3 — Migration données
+65%
+...
+Phase 4 — Tests & recette
+10%
+–
+Phase 5 — Go-live & formation
+0%
+–
+⚠  Risque : Données fournisseurs incomplètes — Action : Atelier data quality prévu le 25/06  |  Resp. : M. Ouali
+----------------------------------------
+Slide 5 :
+2b. CHANTIER DIGITAL — CRM & Portail Client
+🟢  Statut : GO-LIVE réussi le 01/06/2025 — 847 utilisateurs actifs en J+15
+Indicateurs d'adoption — J+15 :
+Utilisateurs actifs
+847
+Cible : 800
+✓ OK
+Taux d'adoption
+91%
+Cible : 85%
+✓ OK
+Tickets créés/sem.
+1 240
+Cible : 1 000
+✓ OK
+Satisfaction outil
+3,9/5
+Cible : 4,0/5
+⚠ Suivi
+Prochaines étapes :
+Formation avancée Équipe Commerciale — 1er juillet
+Intégration module Service Après-Vente — août 2025
+Déploiement portail client externe v2 — septembre 2025
+----------------------------------------
+Slide 6 :
+3. POINT RH — Compétences Digitales
+RECRUTEMENTS EN COURS
+Lead Data Engineer
+Entretiens finaux
+Urgent
+Architecte Cloud AWS
+Offre en cours
+Urgent
+Product Owner CRM
+Sourcing
+Normal
+Analyste Cybersécurité
+Sourcing
+Normal
+UX Designer
+Poste gelé (budget)
+Gelé
+PROGRAMME DE FORMATION S2
+Data & IA pour managers
+16h — 42 pers.
+Confirmé
+Cybersécurité fondamentaux
+8h — 120 pers.
+Confirmé
+Agile & Scrum
+24h — 18 pers.
+Confirmé
+Power BI / Reporting
+12h — 35 pers.
+À planifier
+Architecture microservices
+32h — 8 pers.
+À planifier
+----------------------------------------
+Slide 7 :
+4. RÉSULTATS COMMERCIAUX — Données CRM Q2
+Nouveaux clients
+148
++22%
+Pipeline qualifié
+4,8 M€
++35%
+Taux de conversion
+18,4%
++3,1pt
+Churn trimestriel
+4,2%
++0,8pt
+Performance par segment — Q2 2025 :
+PME & Startups
+3,8 M€
+Part : 31%  Tendance : ↑
+Grands Comptes
+5,2 M€
+Part : 42%  Tendance : →
+Secteur Public
+2,1 M€
+Part : 17%  Tendance : ↑
+International
+1,3 M€
+Part : 10%  Tendance : ↑
+----------------------------------------
+Slide 8 :
+5. RISQUES & CONFORMITÉ
+Registre des risques actifs :
+Risque
+Probabilité
+Impact
+Criticité
+Plan d'atténuation
+Resp.
+Retard ERP → impact go-live S2
+Élevée
+Fort
+ROUGE
+Revue hebdo + ressources additionnelles
+N. Ouali
+Cyberattaque / ransomware
+Moyenne
+Fort
+ORANGE
+Audit sécurité planifié + MFA déployé
+A. Khelil
+Turnover compétences clés
+Moyenne
+Moyen
+ORANGE
+Plan de fidélisation + doublure sur postes
+R. Sfaxi
+Non-conformité RGPD portail client
+Faible
+Fort
+ORANGE
+DPO mandaté pour audit — délai : 31/07
+F. Triki
+Dépendance fournisseur ERP unique
+Faible
+Fort
+JAUNE
+Clause contractuelle de sortie négociée
+L. Mansour
+----------------------------------------
+Slide 9 :
+6. DÉCISIONS & PLAN D'ACTION Q3 2025
+DÉCISIONS PRISES — Votées à l'unanimité
+D1
+Validation du déblocage de 180 000 € supplémentaires pour la phase 3 ERP afin de résorber le retard.
+D2
+Autorisation du recrutement immédiat des postes Lead Data Engineer et Architecte Cloud — processus accéléré.
+D3
+Approbation du plan de formation S2 pour un budget de 85 000 €, avec priorité sur Data & IA.
+D4
+Mandat confié à la DAF pour renégocier les conditions contractuelles avec le fournisseur ERP avant le 30/06.
+PLAN D'ACTION Q3 — Priorités
+ID
+Action
+Responsable
+Échéance
+Priorité
+A01
+Atelier data quality fournisseurs
+N. Ouali
+25/06
+Haute
+A02
+Finaliser audit RGPD portail client
+F. Triki
+31/07
+Haute
+A03
+Lancement recrutement Data & Cloud
+R. Sfaxi
+30/06
+Haute
+A04
+Révision budgétaire OPEX S2
+L. Mansour
+15/07
+Normale
+A05
+Déploiement module SAV CRM
+K. Jaziri
+31/08
+Normale
+----------------------------------------
+Slide 10 :
+CLÔTURE DU COMITÉ
+Prochaine réunion :
+17 septembre 2025 — 09h00
+Lieu :
+Salle Innovation — Siège
+Points à préparer :
+Bilan Q2 complet, Go-live ERP, Revue budgétaire S2
+PV diffusé sous :
+5 jours ouvrables après la séance
+Séance levée à 12h30  —  Merci à tous les participants
+----------------------------------------
+
+2. Synthèse de la réunion
+
+Résumé automatique basé sur les slides ci-dessus.
+
+(Vous pouvez remplacer cette section par une IA si besoin)

@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PV Automation — Système de Procès-Verbaux</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+    :root {
+      --navy: #1B3A6B;
+      --navy-light: #2952A3;
+      --accent: #E8A020;
+      --accent-light: #FDF3E0;
+      --bg: #F7F8FA;
+      --surface: #FFFFFF;
+      --border: #E2E6EE;
+      --text: #1A1F2E;
+      --muted: #6B7280;
+      --success: #0F6E56;
+      --success-bg: #E1F5EE;
+      --danger: #C0392B;
+      --danger-bg: #FDECEA;
+      --radius: 12px;
+      --shadow: 0 2px 8px rgba(27,58,107,0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* Layout */
+    .shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--navy);
+      color: white;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .sidebar-brand {
+      padding: 28px 24px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .sidebar-brand h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 20px;
+      font-weight: 400;
+      letter-spacing: -0.3px;
+      line-height: 1.3;
+    }
+    .sidebar-brand span { color: var(--accent); }
+    .sidebar-brand p { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 4px; letter-spacing: 0.5px; text-transform: uppercase; }
+
+    .sidebar-nav { padding: 16px 12px; flex: 1; overflow-y: auto; }
+    .nav-step {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; border-radius: 8px;
+      cursor: pointer; margin-bottom: 4px;
+      transition: background 0.15s;
+      color: rgba(255,255,255,0.65);
+      font-size: 13.5px;
+      font-weight: 400;
+      border: none; background: none; width: 100%; text-align: left;
+    }
+    .nav-step:hover { background: rgba(255,255,255,0.08); color: white; }
+    .nav-step.active { background: rgba(255,255,255,0.15); color: white; font-weight: 500; }
+    .nav-step.done { color: rgba(255,255,255,0.85); }
+    .step-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(255,255,255,0.12); display: flex;
+      align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; flex-shrink: 0;
+    }
+    .nav-step.active .step-num { background: var(--accent); color: var(--navy); }
+    .nav-step.done .step-num { background: var(--success); color: white; }
+
+    .sidebar-footer {
+      padding: 16px 24px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    /* Main */
+    .main { padding: 40px 48px; max-width: 900px; }
+    .page-header { margin-bottom: 32px; }
+    .page-header h2 { font-family: 'DM Serif Display', serif; font-size: 28px; font-weight: 400; color: var(--navy); }
+    .page-header p { font-size: 14px; color: var(--muted); margin-top: 6px; }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    .card-title { font-size: 13px; font-weight: 600; color: var(--navy); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+
+    /* Upload zone */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--navy-light); background: #EEF2FA; }
+    .upload-zone .icon { font-size: 40px; margin-bottom: 12px; }
+    .upload-zone h3 { font-size: 16px; font-weight: 500; color: var(--text); }
+    .upload-zone p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .upload-zone input { display: none; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 8px; border: none;
+      font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .btn-primary { background: var(--navy); color: white; }
+    .btn-primary:hover { background: var(--navy-light); }
+    .btn-accent { background: var(--accent); color: var(--navy); }
+    .btn-accent:hover { background: #D4901C; }
+    .btn-outline { background: transparent; color: var(--navy); border: 1.5px solid var(--border); }
+    .btn-outline:hover { border-color: var(--navy); background: #EEF2FA; }
+    .btn-success { background: var(--success); color: white; }
+    .btn-success:hover { background: #0A5741; }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; background: var(--bg); border-radius: 8px; padding: 4px; margin-bottom: 16px; }
+    .tab { padding: 8px 16px; border-radius: 6px; border: none; background: none; font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer; color: var(--muted); font-weight: 400; }
+    .tab.active { background: white; color: var(--navy); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+    /* Tags/badges */
+    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+    .badge-blue { background: #E6EEF9; color: var(--navy); }
+    .badge-green { background: var(--success-bg); color: var(--success); }
+    .badge-amber { background: var(--accent-light); color: #92600A; }
+    .badge-red { background: var(--danger-bg); color: var(--danger); }
+
+    /* Forms */
+    label { display: block; font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+    input[type=text], textarea, select {
+      width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
+      border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px;
+      color: var(--text); background: white; transition: border-color 0.15s;
+      outline: none;
+    }
+    input[type=text]:focus, textarea:focus, select:focus { border-color: var(--navy-light); }
+    textarea { min-height: 80px; resize: vertical; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+
+    /* PV Editor */
+    .pv-section { margin-bottom: 28px; }
+    .pv-section-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--navy); padding-bottom: 8px; border-bottom: 2px solid var(--navy);
+      margin-bottom: 16px;
+    }
+    .point-card {
+      border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+      margin-bottom: 12px; background: white;
+    }
+    .point-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .point-title { font-size: 15px; font-weight: 600; color: var(--navy); }
+    .action-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .action-row input, .action-row select { padding: 6px 10px; font-size: 13px; }
+
+    /* Notes input */
+    .note-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .note-row input:first-child { flex: 0 0 180px; }
+    .note-row input:last-of-type { flex: 1; }
+
+    /* Loading spinner */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+    .spinner-dark { border: 2px solid var(--border); border-top-color: var(--navy); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Alerts */
+    .alert { padding: 12px 16px; border-radius: 8px; font-size: 13.5px; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
+    .alert-success { background: var(--success-bg); color: var(--success); border: 1px solid #9FE1CB; }
+    .alert-error { background: var(--danger-bg); color: var(--danger); border: 1px solid #F0C0BB; }
+    .alert-info { background: #E6EEF9; color: var(--navy); border: 1px solid #BDD0EF; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #1A1F2E; color: white; padding: 12px 20px;
+      border-radius: 10px; font-size: 14px; z-index: 9999;
+      transform: translateY(80px); opacity: 0;
+      transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+      max-width: 360px; pointer-events: none;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+
+    /* Utils */
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
+    .gap-8 { gap: 8px; }
+    .gap-12 { gap: 12px; }
+    .mt-12 { margin-top: 12px; }
+    .mt-20 { margin-top: 20px; }
+    .text-muted { color: var(--muted); font-size: 13px; }
+    .hidden { display: none !important; }
+    .w-full { width: 100%; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+    /* Language flags */
+    .lang-btn { padding: 8px 16px; border-radius: 8px; border: 1.5px solid var(--border); background: white; cursor: pointer; font-size: 13px; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .lang-btn.active { border-color: var(--navy); background: var(--navy); color: white; }
+    .lang-btn:hover:not(.active) { border-color: var(--navy-light); }
+
+    /* Pane visibility */
+    .pane { display: none; }
+    .pane.active { display: block; }
+
+    @media (max-width: 800px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; }
+      .main { padding: 24px 20px; }
+      .form-row { grid-template-columns: 1fr; }
+      .action-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>PV <span>Auto</span></h1>
+      <p>Système de procès-verbaux</p>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-step active" onclick="goTo(0)" id="nav0">
+        <span class="step-num">1</span> Import présentation
+      </button>
+      <button class="nav-step" onclick="goTo(1)" id="nav1">
+        <span class="step-num">2</span> Prise de notes
+      </button>
+      <button class="nav-step" onclick="goTo(2)" id="nav2">
+        <span class="step-num">3</span> Fusion &amp; reformulation
+      </button>
+      <button class="nav-step" onclick="goTo(3)" id="nav3">
+        <span class="step-num">4</span> Validation &amp; édition
+      </button>
+      <button class="nav-step" onclick="goTo(4)" id="nav4">
+        <span class="step-num">5</span> Traduction &amp; export
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      PV Automation v1.0<br>Powered by Claude API
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    
+
+    <!-- ── STEP 1: IMPORT ─────────────────────────────────────────── -->
+    <div class="pane active" id="pane0">
+      <div class="page-header">
+        <h2>Import de la présentation</h2>
+        <p>Importez votre fichier PowerPoint ou PDF pour extraire automatiquement la structure du PV.</p>
+      </div>
+
+         <div class="card">
+        <div class="card-title">Charger un fichier</div>
+        <div class="upload-zone" id="dropzone" onclick="document.getElementById('fileInput').click()"
+             ondragover="event.preventDefault();this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="handleDrop(event)">
+          <div class="icon">📊</div>
+          <h3>Déposez votre présentation ici</h3>
+          <p>Formats supportés : .pptx, .pdf</p>
+          <input type="file" id="fileInput" accept=".pptx,.pdf" onchange="handleFileSelect(this)"/>
+        </div>
+        <div id="fileInfo" class="hidden mt-12">
+          <div class="alert alert-info">
+            <span>📎</span>
+            <span id="fileName"></span>
+          </div>
+        </div>
+        <div class="flex gap-8 mt-12">
+          <button class="btn btn-primary" id="extractBtn" onclick="extractFile()" disabled>
+            <span>Extraire le contenu</span>
+          </button>
+          <button class="btn btn-outline" onclick="loadSampleData()">
+            ✨ Utiliser les données d'exemple
+          </button>
+        </div>
+        <div id="extractLoading" class="hidden mt-12 text-muted flex items-center gap-8">
+          <span class="spinner spinner-dark"></span> Extraction en cours…
+        </div>
+      </div>
+
+      <div class="card hidden" id="extractResult">
+        <div class="card-title">Données extraites</div>
+        <div id="extractedPreview"></div>
+        <div class="form-group" style="margin-top:16px">
+          <label for="extractedEditor">Résumé des données extraites</label>
+          <textarea id="extractedEditor" style="width:100%;min-height:260px;font-family:inherit;font-size:14px;white-space:pre-wrap;padding:12px;border:1px solid var(--border);border-radius:8px;resize:vertical"></textarea>
+          <p class="text-muted" style="font-size:12px;margin-top:8px">Ce texte est une version lisible des données extraites. Le draft est généré à partir des données structurées sous-jacentes.</p>
+        </div>
+        <div class="flex gap-8 mt-12">
+          <button class="btn btn-secondary" onclick="generateStructuredDraft()">
+            Générer le draft PV
+          </button>
+          <button class="btn btn-primary" onclick="goToDraftEditor()">
+            Voir le PV généré
+          </button>
+        </div>
+      </div>
+    </div>
+
+
+
+
+    <!-- ── STEP 2: NOTES ──────────────────────────────────────────── -->
+    <div class="pane" id="pane1">
+      <div class="page-header">
+        <h2>Prise de notes</h2>
+        <p>Saisissez les remarques et observations de chaque participant durant la réunion.</p>
+      </div>
+      <div class="card">
+        <div class="card-title">Notes par participant</div>
+        <div id="notesContainer"></div>
+        <button class="btn btn-outline btn-sm mt-12" onclick="addNote()">+ Ajouter une note</button>
+      </div>
+      <div class="flex gap-8">
+        <button class="btn btn-outline" onclick="goTo(0)">← Retour</button>
+        <button class="btn btn-primary" onclick="goTo(2)">Fusionner avec le PV →</button>
+      </div>
+    </div>
+
+    <!-- ── STEP 3: FUSION ─────────────────────────────────────────── -->
+    <div class="pane" id="pane2">
+      <div class="page-header">
+        <h2>Fusion &amp; Reformulation IA</h2>
+        <p>Le système va fusionner les notes avec le PV draft et reformuler le tout en langage administratif.</p>
+      </div>
+      <div class="card">
+        <div class="card-title">Récapitulatif</div>
+        <div id="mergePreview" class="text-muted"></div>
+        <div class="flex gap-8 mt-12">
+          <button class="btn btn-primary" id="mergeBtn" onclick="mergeNotes()">
+            🤖 Lancer la fusion IA
+          </button>
+        </div>
+        <div id="mergeLoading" class="hidden mt-12 text-muted flex items-center gap-8">
+          <span class="spinner spinner-dark"></span> Fusion et reformulation en cours (peut prendre 15-20s)…
+        </div>
+      </div>
+      <div class="hidden" id="mergeResult">
+        <div class="alert alert-success">✅ Fusion réussie ! Le PV a été enrichi avec les notes.</div>
+        <div class="flex gap-8">
+          <button class="btn btn-outline" onclick="goTo(1)">← Retour</button>
+          <button class="btn btn-primary" onclick="goTo(3)">Valider le PV →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 4: VALIDATION ─────────────────────────────────────── -->
+    <div class="pane" id="pane3">
+      <div class="page-header">
+        <h2>Validation &amp; Édition</h2>
+        <p>Vérifiez et corrigez le PV généré avant l'export final.</p>
+      </div>
+      <div id="pvEditor"></div>
+      <div class="flex gap-8 mt-12">
+        <button class="btn btn-outline" onclick="goTo(2)">← Retour</button>
+        <button class="btn btn-primary" onclick="saveAndContinue()">Valider le PV →</button>
+      </div>
+    </div>
+
+    <!-- ── STEP 5: EXPORT ─────────────────────────────────────────── -->
+    <div class="pane" id="pane4">
+      <div class="page-header">
+        <h2>Traduction &amp; Export</h2>
+        <p>Traduisez le PV et exportez-le en fichier Word (.docx).</p>
+      </div>
+      <div class="card">
+        <div class="card-title">Langue d'export</div>
+        <div class="flex gap-8">
+          <button class="lang-btn active" id="lang-fr" onclick="setLang('fr', this)">🇫🇷 Français</button>
+          <button class="lang-btn" id="lang-en" onclick="setLang('en', this)">🇬🇧 English</button>
+          <button class="lang-btn" id="lang-ar" onclick="setLang('ar', this)">🇹🇳 العربية</button>
+        </div>
+        <div id="translateLoading" class="hidden mt-12 text-muted flex items-center gap-8">
+          <span class="spinner spinner-dark"></span> Traduction en cours…
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Export</div>
+        <p class="text-muted" style="margin-bottom:16px">Le PV sera exporté au format Word (.docx) professionnel avec mise en page complète.</p>
+        <div class="flex gap-8">
+          <button class="btn btn-success" onclick="exportDocx()">
+            📄 Télécharger le .docx
+          </button>
+        </div>
+        <div id="exportLoading" class="hidden mt-12 text-muted flex items-center gap-8">
+          <span class="spinner spinner-dark"></span> Génération du document…
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = 'http://localhost:8001';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let state = {
+  currentStep: 0,
+  file: null,
+  extracted: null,
+  pvDraft: null,
+  pvFinal: null,
+  notes: [],
+  selectedLang: 'fr',
+  translatedPv: null,
+};
+
+const STEP_DONE = new Set();
+
+// ── Navigation ─────────────────────────────────────────────────────────────────
+function goTo(step) {
+  document.querySelectorAll('.pane').forEach((p,i) => p.classList.toggle('active', i===step));
+  document.querySelectorAll('.nav-step').forEach((n,i) => {
+    n.classList.toggle('active', i===step);
+    n.classList.toggle('done', STEP_DONE.has(i) && i!==step);
+  });
+  state.currentStep = step;
+  if (step === 1) renderNotes();
+  if (step === 2) renderMergePreview();
+  if (step === 3 && state.pvFinal) renderPvEditor(state.pvFinal);
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function toast(msg, type='info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = type==='error' ? '#C0392B' : type==='success' ? '#0F6E56' : '#1A1F2E';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ── Step 1: Import ─────────────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) setFile(file);
+}
+function handleFileSelect(input) { if (input.files[0]) setFile(input.files[0]); }
+function setFile(file) {
+  state.file = file;
+  document.getElementById('fileInfo').classList.remove('hidden');
+  document.getElementById('fileName').textContent = `${file.name}  (${(file.size/1024).toFixed(0)} Ko)`;
+  document.getElementById('extractBtn').disabled = false;
+}
+
+async function extractFile() {
+  if (!state.file) return;
+  document.getElementById('extractLoading').classList.remove('hidden');
+  document.getElementById('extractBtn').disabled = true;
+
+  const formData = new FormData();
+  formData.append("file", state.file);
+  
+  // ✅ Ajout session_info — utilise state.sessionInfo si disponible, sinon objet vide
+  const sessionInfo = state.sessionInfo ?? {};
+  formData.append("session_info", JSON.stringify(sessionInfo));
+
+  try {
+    const res = await fetch(`${API}/api/parse-pptx`, { method: 'POST', body: formData });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const extracted = data.extracted ?? data.pv ?? data;
+    state.extracted = extracted;
+    state.pvDraft = null;
+    state.pvFinal = null;
+    showExtractedPreview(extracted);
+    renderExtractedEditor(extracted);
+    STEP_DONE.add(0);
+    toast('Extraction réussie !', 'success');
+  } catch(e) {
+    toast('Erreur extraction: ' + e.message, 'error');
+  } finally {
+    document.getElementById('extractLoading').classList.add('hidden');
+    document.getElementById('extractBtn').disabled = false;
+  }
+}
+
+async function loadSampleData() {
+  document.getElementById('extractLoading').classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/sample-pptx-data`);
+    const data = await res.json();
+    state.extracted = data;
+    state.pvDraft = null;
+    state.pvFinal = null;
+
+    showExtractedPreview(data);
+    renderExtractedEditor(data);
+    STEP_DONE.add(0);
+    toast('Données d\'exemple chargées !', 'success');
+  } catch(e) {
+    // Fallback: build draft locally
+    state.extracted = null;
+    state.pvDraft = buildSamplePV();
+    state.pvFinal = buildSamplePV();
+    document.getElementById('extractResult').classList.remove('hidden');
+    document.getElementById('extractedPreview').innerHTML = `
+      <div class="alert alert-info">⚠️ Serveur non démarré — données locales chargées pour démonstration.</div>
+    `;
+    STEP_DONE.add(0);
+    toast('Données de démo chargées (mode offline)', 'info');
+  } finally {
+    document.getElementById('extractLoading').classList.add('hidden');
+  }
+}
+
+function buildDraftFromExtracted(data) {
+  return {
+    numero: data.meta?.numero || 'PV-2025-001',
+    titre: data.meta?.titre_reunion || 'Réunion de Comité',
+    type_reunion: 'Comité de Direction',
+    date: data.meta?.date || '',
+    heure_debut: data.meta?.heure_debut || '',
+    heure_fin: data.meta?.heure_fin || '',
+    lieu: data.meta?.lieu || '',
+    president_seance: '',
+    redacteur: '',
+    participants: (data.participants || []).map(p => ({ nom: typeof p === 'string' ? p : p.nom, fonction: '', present: true })),
+    excuses: data.excuses || [],
+    ordre_du_jour: data.ordre_du_jour || [],
+    points: (data.points_discutes || []).map((pt, i) => ({
+      numero: String(i+1), titre: pt.titre,
+      expose: pt.contenu?.join(' ') || '', discussion: '', remarques: [], conclusion: ''
+    })),
+    decisions: (data.decisions || []).map(d => typeof d === 'string' ? d : d.decision),
+    plan_action: (data.actions || []).map((a, i) => ({
+      id: `A${String(i+1).padStart(2,'0')}`, action: typeof a === 'string' ? a : a.action,
+      responsable: '', echeance: '', statut: 'En cours', priorite: 'Normale'
+    })),
+    prochaine_reunion: { date: '', lieu: '', points_previsionnels: [] },
+    approbation: { date: '', signataire: '', statut: 'En attente' }
+  };
+}
+
+function buildSamplePV() {
+  return {
+    numero: 'PV-2025-001', titre: 'Comité de Direction Q1 2025',
+    type_reunion: 'Comité de Direction',
+    date: '15/01/2025', heure_debut: '09h00', heure_fin: '11h30',
+    lieu: 'Salle de Conférence A', president_seance: 'Mme. Leila Bensalem',
+    redacteur: 'Secrétariat de Direction',
+    participants: [
+      { nom: 'Mme. Leila Bensalem', fonction: 'Directrice Générale', present: true },
+      { nom: 'M. Karim Trabelsi', fonction: 'Directeur Financier', present: true },
+      { nom: 'Mme. Sonia Gharbi', fonction: 'Directrice RH', present: true },
+      { nom: 'M. Youssef Chaabane', fonction: 'Directeur Technique', present: true },
+      { nom: 'M. Nabil Mansouri', fonction: 'Directeur Commercial', present: true },
+    ],
+    excuses: [{ nom: 'M. Farouk Aissaoui', fonction: 'Directeur Logistique' }],
+    ordre_du_jour: ['Bilan financier T4 2024','Revue des objectifs RH 2025','Feuille de route technique Q1','Points commerciaux','Questions diverses'],
+    points: [
+      { numero:'1', titre:'Bilan Financier T4 2024',
+        expose:'M. Trabelsi a présenté les résultats financiers du quatrième trimestre 2024.',
+        discussion:'Le Comité a pris acte d\'une croissance du chiffre d\'affaires de 8% par rapport au T4 2023, atteignant 4,2 M€. La marge brute s\'établit à 42% et l\'EBITDA à 18%. Une légère hausse des dettes fournisseurs a été signalée et fera l\'objet d\'une analyse approfondie.',
+        remarques:['Le budget 2025 a été validé par le Conseil d\'Administration le 10/01/2025.'],
+        conclusion:'Le Comité approuve le bilan financier T4 2024 et valide le budget 2025 tel que présenté.' },
+      { numero:'2', titre:'Revue des Objectifs RH 2025',
+        expose:'Mme. Gharbi a présenté le plan RH 2025.',
+        discussion:'Le plan de recrutement prévoit 12 postes, avec une priorité sur 3 ingénieurs et 2 commerciaux. Un programme de formation de 200h est planifié. Le taux de turnover 2024 s\'établit à 8%, avec un objectif de 6% pour 2025.',
+        remarques:['Révision de la grille salariale prévue en mars 2025.'],
+        conclusion:'Le Comité autorise le lancement immédiat du recrutement des 3 développeurs.' },
+      { numero:'3', titre:'Feuille de Route Technique Q1',
+        expose:'M. Chaabane a présenté l\'avancement des projets techniques.',
+        discussion:'La migration cloud AWS Phase 2 est complétée à 60%. La nouvelle architecture microservices est en cours de déploiement. Les tests de charge ont atteint 10 000 requêtes par seconde.',
+        remarques:['Audit ISO 27001 planifié en mars 2025.'],
+        conclusion:'La validation de la Phase 3 cloud est conditionnée à la réalisation préalable de l\'audit sécurité.' },
+      { numero:'4', titre:'Points Commerciaux',
+        expose:'M. Mansouri a présenté l\'état du pipeline commercial.',
+        discussion:'Le pipeline Q1 compte 18 opportunités qualifiées avec 3 contrats majeurs attendus avant fin janvier. Un nouveau marché dans le secteur bancaire au Maghreb a été identifié. Le NPS client 2024 s\'établit à 72.',
+        remarques:['Partenariat stratégique en négociation avec TechMed.'],
+        conclusion:'Une étude de faisabilité pour le marché bancaire Maghreb est commandée.' },
+    ],
+    decisions: [
+      'Budget 2025 approuvé tel que présenté au Comité.',
+      'Autorisation de recrutement de 3 ingénieurs développement — lancement immédiat.',
+      'Validation Phase 3 cloud soumise à audit sécurité ISO 27001 préalable.',
+      'Étude de faisabilité pour le marché bancaire Maghreb commandée à M. Mansouri.',
+    ],
+    plan_action: [
+      { id:'A01', action:'Analyse détaillée des dettes fournisseurs', responsable:'M. K. Trabelsi', echeance:'30/01/2025', statut:'En cours', priorite:'Haute' },
+      { id:'A02', action:'Publication des offres d\'emploi développeurs', responsable:'Mme. S. Gharbi', echeance:'20/01/2025', statut:'En cours', priorite:'Haute' },
+      { id:'A03', action:'Finalisation de l\'audit ISO 27001', responsable:'M. Y. Chaabane', echeance:'15/03/2025', statut:'Planifié', priorite:'Normale' },
+      { id:'A04', action:'Rédaction du business plan secteur bancaire', responsable:'M. N. Mansouri', echeance:'28/02/2025', statut:'Planifié', priorite:'Normale' },
+    ],
+    prochaine_reunion: { date:'15/04/2025', lieu:'Salle de Conférence A', points_previsionnels:['Revue Q1 2025','Bilan recrutements','État avancement projets'] },
+    approbation: { date:'', signataire:'', statut:'En attente' }
+  };
+}
+
+function showExtractedPreview(data) {
+  const meta = data.meta || {};
+  const participants = (data.participants || []).map(p => typeof p === 'string' ? p : p.nom || JSON.stringify(p));
+  const points = (data.points_discutes || []).map(pt => `
+      <div class="extract-point" style="margin-bottom:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#FAFBFF">
+        <div><strong>${pt.titre || 'Point sans titre'}</strong></div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px">${(pt.contenu || []).join(' • ') || 'Contenu absent'}</div>
+      </div>
+    `).join('');
+  const decisions = (data.decisions || []).map(d => `<li>${typeof d === 'string' ? d : JSON.stringify(d)}</li>`).join('');
+  const actions = (data.actions || []).map(a => `<li>${typeof a === 'string' ? a : `${a.ref || ''} ${a.action || ''}`}</li>`).join('');
+
+  document.getElementById('extractResult').classList.remove('hidden');
+  document.getElementById('extractedPreview').innerHTML = `
+    <div class="form-row">
+      <div><span class="text-muted">Titre :</span> <strong>${meta.titre_reunion || '—'}</strong></div>
+      <div><span class="text-muted">Date :</span> <strong>${meta.date || '—'}</strong></div>
+      <div><span class="text-muted">Participants :</span> <strong>${participants.length}</strong></div>
+      <div><span class="text-muted">Points :</span> <strong>${(data.points_discutes||[]).length}</strong></div>
+    </div>
+    <div class="form-group"><label>Participants</label><div>${participants.map(p => `<span class="badge badge-blue" style="margin-right:6px;margin-bottom:6px">${p}</span>`).join('')}</div></div>
+    <div class="form-group"><label>Ordre du jour</label><div>${(data.ordre_du_jour||[]).map(o => `<span class="badge badge-amber" style="margin-right:6px;margin-bottom:6px">${o}</span>`).join('')}</div></div>
+    <div class="form-group"><label>Points discutés</label>${points || '<div class="text-muted">Aucun point détecté</div>'}</div>
+    <div class="form-row">
+      <div class="form-group"><label>Décisions</label><ul style="padding-left:18px;margin-top:8px;color:var(--muted)">${decisions || '<li>Aucune décision détectée</li>'}</ul></div>
+      <div class="form-group"><label>Actions</label><ul style="padding-left:18px;margin-top:8px;color:var(--muted)">${actions || '<li>Aucune action détectée</li>'}</ul></div>
+    </div>
+  `;
+  renderExtractedEditor(data);
+}
+
+function renderExtractedEditor(data) {
+  const editor = document.getElementById('extractedEditor');
+  if (!editor) return;
+  editor.value = buildExtractedText(data);
+}
+
+function buildExtractedText(data) {
+  const meta = data.meta || {};
+  const lines = [];
+  lines.push(`Titre : ${meta.titre_reunion || 'Non renseigné'}`);
+  lines.push(`Date : ${meta.date || 'Non renseignée'}`);
+  lines.push(`Heure début : ${meta.heure_debut || '—'} / Heure fin : ${meta.heure_fin || '—'}`);
+  lines.push(`Lieu : ${meta.lieu || '—'}`);
+  lines.push('');
+  if (data.participants?.length) {
+    lines.push('Participants :');
+    data.participants.forEach(p => lines.push(`- ${typeof p === 'string' ? p : p.nom || JSON.stringify(p)}`));
+    lines.push('');
+  }
+  if (data.ordre_du_jour?.length) {
+    lines.push('Ordre du jour :');
+    data.ordre_du_jour.forEach(item => lines.push(`- ${item}`));
+    lines.push('');
+  }
+  const points = data.points_discutes || data.points_discuses || [];
+  if (points.length) {
+    lines.push('Points discutés :');
+    points.forEach((pt, i) => {
+      lines.push(`${i + 1}. ${pt.titre || 'Sans titre'}`);
+      if (pt.contenu?.length) lines.push(`   • ${pt.contenu.join(' / ')}`);
+    });
+    lines.push('');
+  }
+  if (data.decisions?.length) {
+    lines.push('Décisions :');
+    data.decisions.forEach(d => lines.push(`- ${typeof d === 'string' ? d : d.decision || JSON.stringify(d)}`));
+    lines.push('');
+  }
+  if (data.actions?.length) {
+    lines.push('Actions :');
+    data.actions.forEach(a => lines.push(`- ${typeof a === 'string' ? a : a.action || JSON.stringify(a)}`));
+    lines.push('');
+  }
+  const result = lines.join('\n').trim();
+  return result || 'Aucun résumé disponible pour ces données extraites.';
+}
+
+async function generateStructuredDraft() {
+  if (!state.extracted) {
+    toast('Aucune donnée extraite disponible pour générer le draft.', 'error');
+    return;
+  }
+
+  document.getElementById('extractLoading').classList.remove('hidden');
+  document.getElementById('extractBtn').disabled = true;
+
+  try {
+    const res = await fetch(`${API}/api/generate-draft`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ pv_data: state.extracted, extra_notes: '' })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    let data;
+    const contentType = res.headers.get('content-type') || '';
+    const rawText = await res.text();
+    if (contentType.includes('application/json')) {
+      data = JSON.parse(rawText || '{}');
+    } else if (rawText.trim()) {
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseError) {
+        throw new Error(`Réponse API invalide : ${rawText}`);
+      }
+    } else {
+      throw new Error('Réponse API vide');
+    }
+
+    state.pvDraft = data.draft;
+    state.pvFinal = data.draft;
+    toast('Draft structuré généré !', 'success');
+    renderPvEditor(state.pvFinal);
+    goTo(3);
+  } catch (e) {
+    toast('Erreur génération draft : ' + e.message, 'error');
+  } finally {
+    document.getElementById('extractLoading').classList.add('hidden');
+    document.getElementById('extractBtn').disabled = false;
+  }
+}
+
+function goToDraftEditor() {
+  if (!state.pvFinal) {
+    toast('Générez d\'abord le draft PV.', 'error');
+    return;
+  }
+  renderPvEditor(state.pvFinal);
+  goTo(3);
+}
+
+// ── Step 2: Notes ──────────────────────────────────────────────────────────────
+const DEFAULT_PARTICIPANTS = ['Mme. Bensalem','M. Trabelsi','Mme. Gharbi','M. Chaabane','M. Mansouri'];
+
+function renderNotes() {
+  if (state.notes.length === 0) {
+    // Pré-remplir avec participants extraits
+    const participants = state.pvFinal?.participants?.map(p=>typeof p==='string'?p:p.nom) || DEFAULT_PARTICIPANTS;
+    state.notes = participants.slice(0,3).map(p => ({ participant: p, content: '' }));
+  }
+  const container = document.getElementById('notesContainer');
+  container.innerHTML = state.notes.map((n,i) => `
+    <div class="note-row">
+      <input type="text" value="${n.participant}" placeholder="Participant" oninput="state.notes[${i}].participant=this.value"/>
+      <input type="text" value="${n.content}" placeholder="Note / remarque / observation…" oninput="state.notes[${i}].content=this.value"/>
+      <button class="btn btn-outline btn-sm" onclick="removeNote(${i})" style="flex-shrink:0">✕</button>
+    </div>
+  `).join('');
+}
+
+function addNote() {
+  state.notes.push({ participant: '', content: '' });
+  renderNotes();
+}
+function removeNote(i) { state.notes.splice(i,1); renderNotes(); }
+
+// ── Step 3: Merge ──────────────────────────────────────────────────────────────
+function renderMergePreview() {
+  const validNotes = state.notes.filter(n => n.participant && n.content);
+  document.getElementById('mergePreview').innerHTML = `
+    <p><strong>${validNotes.length}</strong> note(s) à fusionner avec le PV draft.</p>
+    ${validNotes.map(n=>`<div class="flex items-center gap-8 mt-12"><span class="badge badge-blue">${n.participant}</span><span class="text-muted">${n.content.substring(0,80)}${n.content.length>80?'…':''}</span></div>`).join('')}
+    ${validNotes.length===0?'<div class="alert alert-info" style="margin-top:12px">ℹ️ Aucune note saisie — le PV sera reformulé à partir des données extraites uniquement.</div>':''}
+  `;
+}
+
+async function mergeNotes() {
+  document.getElementById('mergeLoading').classList.remove('hidden');
+  document.getElementById('mergeBtn').disabled = true;
+
+  const validNotes = state.notes.filter(n => n.participant && n.content);
+
+  try {
+    const res = await fetch(`${API}/api/merge-notes`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ pv_draft: state.pvDraft || state.pvFinal, notes: validNotes })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    state.pvFinal = data.pv;
+    document.getElementById('mergeResult').classList.remove('hidden');
+    STEP_DONE.add(2);
+    toast('Fusion réussie !', 'success');
+  } catch(e) {
+    // Mode offline
+    state.pvFinal = state.pvFinal || buildSamplePV();
+    document.getElementById('mergeResult').classList.remove('hidden');
+    STEP_DONE.add(2);
+    toast('Mode offline — PV formaté localement', 'info');
+  } finally {
+    document.getElementById('mergeLoading').classList.add('hidden');
+    document.getElementById('mergeBtn').disabled = false;
+  }
+}
+
+// ── Step 4: Editor ─────────────────────────────────────────────────────────────
+function renderPvEditor(pv) {
+  const el = document.getElementById('pvEditor');
+  el.innerHTML = `
+    <!-- Infos générales -->
+    <div class="card">
+      <div class="pv-section-label">Informations générales</div>
+      <div class="form-row">
+        <div class="form-group"><label>Numéro PV</label><input type="text" value="${pv.numero||''}" oninput="state.pvFinal.numero=this.value"/></div>
+        <div class="form-group"><label>Type de réunion</label><input type="text" value="${pv.type_reunion||''}" oninput="state.pvFinal.type_reunion=this.value"/></div>
+        <div class="form-group"><label>Date</label><input type="text" value="${pv.date||''}" oninput="state.pvFinal.date=this.value"/></div>
+        <div class="form-group"><label>Heure début</label><input type="text" value="${pv.heure_debut||''}" oninput="state.pvFinal.heure_debut=this.value"/></div>
+        <div class="form-group"><label>Heure fin</label><input type="text" value="${pv.heure_fin||''}" oninput="state.pvFinal.heure_fin=this.value"/></div>
+        <div class="form-group"><label>Lieu</label><input type="text" value="${pv.lieu||''}" oninput="state.pvFinal.lieu=this.value"/></div>
+        <div class="form-group"><label>Président de séance</label><input type="text" value="${pv.president_seance||''}" oninput="state.pvFinal.president_seance=this.value"/></div>
+        <div class="form-group"><label>Rédacteur</label><input type="text" value="${pv.redacteur||''}" oninput="state.pvFinal.redacteur=this.value"/></div>
+      </div>
+    </div>
+
+    <!-- Participants -->
+    <div class="card">
+      <div class="pv-section-label">Participants</div>
+      <div id="participantsEditor">
+        ${(pv.participants||[]).map((p,i)=>`
+          <div class="flex gap-8 mb-8">
+            <input type="text" value="${typeof p==='string'?p:p.nom||''}" placeholder="Nom" style="flex:1" oninput="ensureParticipant(${i},'nom',this.value)"/>
+            <input type="text" value="${typeof p==='string'?'':p.fonction||''}" placeholder="Fonction" style="flex:1" oninput="ensureParticipant(${i},'fonction',this.value)"/>
+            <button class="btn btn-outline btn-sm" onclick="removeParticipant(${i})">✕</button>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-outline btn-sm mt-12" onclick="addParticipant()">+ Ajouter un participant</button>
+    </div>
+
+    <!-- Ordre du jour -->
+    <div class="card">
+      <div class="pv-section-label">Ordre du jour</div>
+      ${(pv.ordre_du_jour||[]).map((item,i)=>`
+        <div class="flex gap-8 mb-8">
+          <input type="text" value="${item}" style="flex:1" oninput="state.pvFinal.ordre_du_jour[${i}]=this.value"/>
+          <button class="btn btn-outline btn-sm" onclick="state.pvFinal.ordre_du_jour.splice(${i},1);renderPvEditor(state.pvFinal)">✕</button>
+        </div>`).join('')}
+      <button class="btn btn-outline btn-sm mt-12" onclick="state.pvFinal.ordre_du_jour.push('');renderPvEditor(state.pvFinal)">+ Ajouter un point</button>
+    </div>
+
+    <!-- Points discutés -->
+    <div class="card">
+      <div class="pv-section-label">Points discutés</div>
+      ${(pv.points||[]).map((pt,i)=>`
+        <div class="point-card">
+          <div class="point-card-header">
+            <span class="point-title">${pt.numero||i+1}. ${pt.titre||''}</span>
+            <span class="badge badge-blue">Point ${i+1}</span>
+          </div>
+          <div class="form-group"><label>Exposé</label>
+            <textarea oninput="state.pvFinal.points[${i}].expose=this.value">${pt.expose||''}</textarea></div>
+          <div class="form-group"><label>Discussion</label>
+            <textarea oninput="state.pvFinal.points[${i}].discussion=this.value">${pt.discussion||''}</textarea></div>
+          <div class="form-group"><label>Conclusion</label>
+            <input type="text" value="${pt.conclusion||''}" oninput="state.pvFinal.points[${i}].conclusion=this.value"/></div>
+        </div>`).join('')}
+    </div>
+
+    <!-- Plan d'action -->
+    <div class="card">
+      <div class="pv-section-label">Plan d'action</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#F0F4FA">
+            <th style="padding:8px;text-align:left;color:var(--navy)">Action</th>
+            <th style="padding:8px;text-align:left;color:var(--navy)">Responsable</th>
+            <th style="padding:8px;text-align:left;color:var(--navy)">Échéance</th>
+            <th style="padding:8px;text-align:left;color:var(--navy)">Statut</th>
+          </tr></thead>
+          <tbody>
+            ${(pv.plan_action||[]).map((a,i)=>`
+              <tr style="border-top:1px solid var(--border)">
+                <td style="padding:6px"><input type="text" value="${a.action||''}" class="w-full" oninput="state.pvFinal.plan_action[${i}].action=this.value" style="border:none;background:transparent;padding:2px 4px;font-size:13px"/></td>
+                <td style="padding:6px"><input type="text" value="${a.responsable||''}" class="w-full" oninput="state.pvFinal.plan_action[${i}].responsable=this.value" style="border:none;background:transparent;padding:2px 4px;font-size:13px"/></td>
+                <td style="padding:6px"><input type="text" value="${a.echeance||''}" oninput="state.pvFinal.plan_action[${i}].echeance=this.value" style="border:none;background:transparent;padding:2px 4px;font-size:13px;width:100px"/></td>
+                <td style="padding:6px">
+                  <select onchange="state.pvFinal.plan_action[${i}].statut=this.value" style="border:none;background:transparent;font-size:13px;padding:2px">
+                    <option ${a.statut==='En cours'?'selected':''}>En cours</option>
+                    <option ${a.statut==='Planifié'?'selected':''}>Planifié</option>
+                    <option ${a.statut==='Terminé'?'selected':''}>Terminé</option>
+                    <option ${a.statut==='Annulé'?'selected':''}>Annulé</option>
+                  </select>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <button class="btn btn-outline btn-sm mt-12" onclick="addAction()">+ Ajouter une action</button>
+    </div>
+
+    <!-- Prochaine réunion -->
+    <div class="card">
+      <div class="pv-section-label">Prochaine réunion</div>
+      <div class="form-row">
+        <div class="form-group"><label>Date</label>
+          <input type="text" value="${pv.prochaine_reunion?.date||''}" oninput="state.pvFinal.prochaine_reunion.date=this.value"/></div>
+        <div class="form-group"><label>Lieu</label>
+          <input type="text" value="${pv.prochaine_reunion?.lieu||''}" oninput="state.pvFinal.prochaine_reunion.lieu=this.value"/></div>
+      </div>
+    </div>
+  `;
+}
+
+function ensureParticipant(i, field, val) {
+  if (typeof state.pvFinal.participants[i] === 'string') state.pvFinal.participants[i] = { nom: state.pvFinal.participants[i], fonction:'', present:true };
+  state.pvFinal.participants[i][field] = val;
+}
+function removeParticipant(i) { state.pvFinal.participants.splice(i,1); renderPvEditor(state.pvFinal); }
+function addParticipant() { state.pvFinal.participants.push({nom:'',fonction:'',present:true}); renderPvEditor(state.pvFinal); }
+function addAction() { state.pvFinal.plan_action.push({id:`A${String(state.pvFinal.plan_action.length+1).padStart(2,'0')}`,action:'',responsable:'',echeance:'',statut:'En cours',priorite:'Normale'}); renderPvEditor(state.pvFinal); }
+
+function saveAndContinue() { STEP_DONE.add(3); goTo(4); toast('PV validé !', 'success'); }
+
+// ── Step 5: Translate & Export ────────────────────────────────────────────────
+function setLang(lang, btn) {
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  state.selectedLang = lang;
+  if (lang !== 'fr') translatePv(lang);
+}
+
+async function translatePv(lang) {
+  document.getElementById('translateLoading').classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/api/translate`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ pv: state.pvFinal, target_language: lang })
+    });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    state.translatedPv = data.pv;
+    toast('Traduction effectuée !', 'success');
+  } catch(e) {
+    toast('Traduction offline — export en version originale', 'info');
+    state.translatedPv = null;
+  } finally {
+    document.getElementById('translateLoading').classList.add('hidden');
+  }
+}
+
+async function exportDocx() {
+  const pv = state.translatedPv || state.pvFinal;
+  if (!pv) { toast('Aucun PV disponible', 'error'); return; }
+
+  document.getElementById('exportLoading').classList.remove('hidden');
+  try {
+    const res = await fetch(`${API}/api/export-docx`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ pv, language: state.selectedLang })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `PV_${pv.numero||'draft'}_${state.selectedLang}.docx`;
+    a.click(); URL.revokeObjectURL(url);
+    STEP_DONE.add(4);
+    toast('Document téléchargé !', 'success');
+  } catch(e) {
+    toast('Serveur offline — lancez le backend pour exporter', 'error');
+  } finally {
+    document.getElementById('exportLoading').classList.add('hidden');
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Pré-charger les données de démo au démarrage
+  console.log('PV Automation chargé. Cliquez "Données d\'exemple" pour tester sans serveur.');
+});
+</script>
+</body>
+</html>
