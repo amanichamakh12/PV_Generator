@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,13 +12,12 @@ from Pv_Generator import (
     merge_notes_with_pv,
     translate_pv,
     export_pv_to_docx,
-    OLLAMA_URL,
     OLLAMA_MODEL,
     EXPORT_DIR,
 )
-from pptx_parser import parse_pptx
-from extract import build_extracted_from_slides, extract_text_from_pptx, generate_pv
-from models import DraftRequest, ExportRequest, MergeRequest, TranslateRequest
+from generate_pv_draft import analyze_agenda_group, generate_pv_draft_pipeline, generate_slide_paragraph
+from pptx_parser_chartLlama import parse_pptx
+from models import AgendaAnalysisRequest, DraftPipelineRequest, DraftRequest, ExportRequest, MergeRequest, SlideParagraphRequest, TranslateRequest
 
 # Initialisation des modèles ML au démarrage
 try:
@@ -28,25 +28,7 @@ except Exception as e:
     chart_detector = None
 
 app = FastAPI(
-    title="PV Automation API - Version IA Avancée",
-    description="""
-    API pour l'automatisation des procès-verbaux avec analyse IA avancée.
-    
-    ## Fonctionnalités principales:
-    - **Parsing PowerPoint** avec détection de graphiques (YOLO/CNN)
-    - **Extraction de texte, tableaux, images et graphiques**
-    - **Analyse d'images** pour détecter les graphiques et extraire des données
-    - **Génération de PV** via LLM (Ollama)
-    - **Traduction** multilingue
-    - **Export DOCX**
-    
-    ## Nouvelles fonctionnalités IA:
-    - Détection de barres dans les graphiques
-    - Lecture d'axes avec Computer Vision
-    - Reconstruction de données relatives
-    - Analyse hybride YOLO + OpenCV
-    """,
-    version="2.0.0"
+    title="PV Automation API - Version IA Avancée"
 )
 
 app.add_middleware(
@@ -66,96 +48,115 @@ async def parse_pptx_endpoint(file: UploadFile = File(...)):
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "application/vnd.ms-powerpoint"
     ):
-        raise HTTPException(status_code=415, detail="Format non supporté. Utilisez un fichier .pptx")
+        raise HTTPException(status_code=415, detail="Format non supporté")
 
     contents = await file.read()
 
     if len(contents) > MAX_SIZE_MB * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {MAX_SIZE_MB}MB)")
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux")
 
     with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tmp:
         tmp.write(contents)
         tmp_path = tmp.name
 
     try:
-        result = parse_pptx(tmp_path)  # ✅ Utilise le parser amélioré avec YOLO/CNN
-        
-        # Ajouter des métadonnées sur l'analyse IA
-        result["metadata"] = {
-            "ai_analysis": {
-                "chart_detection": "enabled",  # YOLO + OpenCV
-                "image_analysis": "enabled",   # Détection de graphiques dans images
-                "axis_detection": "enabled",   # Détection d'axes
-                "data_extraction": "enabled"   # Extraction de données relatives
-            },
-            "processing_time": "estimated",
-            "file_size_mb": round(len(contents) / (1024 * 1024), 2)
-        }
+        result = parse_pptx(tmp_path)  
         
     except Exception as e:
-        raise HTTPException(
-            status_code=422, 
-            detail=f"Erreur de parsing du fichier PowerPoint : {str(e)}. Vérifiez que le fichier n'est pas corrompu."
+        print("ERREUR PARSING:", e)
+        raise
+    finally:
+        os.unlink(tmp_path)
+    return JSONResponse(content=result)
+@app.post("/api/generate-pv-from-pptx")
+async def generate_pv_from_pptx(
+    file: UploadFile = File(...),
+    use_llm_for_slides: bool = False,
+    use_llm_for_analysis: bool = True
+):
+    # 1. Validation fichier
+    if file.content_type not in (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.ms-powerpoint"
+    ):
+        raise HTTPException(status_code=415, detail="Format non supporté")
+
+    contents = await file.read()
+
+    if len(contents) > MAX_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux")
+
+    # 2. Sauvegarde temporaire
+    with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+
+    try:
+        # 3. STEP 1 — extraction PPTX
+        extracted = parse_pptx(tmp_path)
+
+        # 4. STEP 2 — génération PV pipeline
+        result = generate_pv_draft_pipeline(
+            extracted,
+            use_llm_for_slides=use_llm_for_slides,
+            use_llm_for_analysis=use_llm_for_analysis,
         )
+
+        return {
+            "success": True,
+            "pipeline_mode": {
+                "slides": "llm" if use_llm_for_slides else "heuristic",
+                "analysis": "llm" if use_llm_for_analysis else "heuristic"
+            },
+            "result": result
+        }
+
+    except Exception as e:
+        print("ERREUR PIPELINE:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
     finally:
         os.unlink(tmp_path)
 
-    return JSONResponse(content=result)
+@app.post("/api/generate-draft")
+async def generate_draft(req: DraftRequest):
+    extracted = req.pv_data or {}
+    draft = generate_pv_draft(OLLAMA_MODEL, extracted)
+    return {
+        "success": True,
+        "draft": draft
+    }
 
 
-@app.post("/api/analyze-chart")
-async def analyze_chart_endpoint(file: UploadFile = File(...)):
-    """
-    Endpoint spécialisé pour analyser une image de graphique avec YOLO/CNN.
-    Utile pour tester la détection de graphiques ou analyser des images individuelles.
-    """
-    if not chart_detector:
-        raise HTTPException(
-            status_code=503, 
-            detail="Service d'analyse IA non disponible. Modèles ML non chargés."
-        )
-    
-    if file.content_type not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
-        raise HTTPException(
-            status_code=415, 
-            detail="Format non supporté. Utilisez PNG, JPEG ou WebP"
-        )
+@app.post("/api/test-slide-paragraph")
+async def test_slide_paragraph(req: SlideParagraphRequest):
+    result = generate_slide_paragraph(req.slide or {}, use_llm=req.use_llm)
+    return {
+        "success": True,
+        "result": result,
+    }
 
-    contents = await file.read()
-    
-    if len(contents) > 5 * 1024 * 1024:  # 5MB max pour les images
-        raise HTTPException(status_code=413, detail="Image trop volumineuse (max 5MB)")
 
-    try:
-        from pptx_parser import _detect_chart_in_image, _extract_chart_data_from_image, TESSERACT_AVAILABLE
-        
-        # Analyser l'image
-        is_chart = _detect_chart_in_image(contents)
-        chart_data = _extract_chart_data_from_image(contents) if is_chart else None
-        
-        result = {
-            "is_chart": is_chart,
-            "chart_data": chart_data,
-            "analysis_method": "YOLO + OpenCV + OCR hybrid" if TESSERACT_AVAILABLE else "YOLO + OpenCV",
-            "confidence_note": "Avec OCR: résultats incluent labels et valeurs textuelles" if TESSERACT_AVAILABLE else "Sans OCR: données structurales uniquement",
-            "processing_status": "success",
-            "features": {
-                "chart_detection": is_chart,
-                "bar_detection": is_chart and chart_data and "detected_bars" in chart_data,
-                "reconstruction": is_chart and chart_data and "bars_reconstruction" in chart_data,
-                "text_regions": is_chart and chart_data and "text_regions" in chart_data,
-                "ocr_extraction": TESSERACT_AVAILABLE
-            }
-        }
-        
-    except Exception as e:
-        result = {
-            "error": str(e),
-            "processing_status": "failed",
-            "fallback_available": True
-        }
+@app.post("/api/test-agenda-analysis")
+async def test_agenda_analysis(req: AgendaAnalysisRequest):
+    result = analyze_agenda_group(req.agenda_group or {}, use_llm=req.use_llm)
+    return {
+        "success": True,
+        "result": result,
+    }
 
-    return JSONResponse(content=result)
+
+@app.post("/api/test-draft-pipeline")
+async def test_draft_pipeline(req: DraftPipelineRequest):
+    result = generate_pv_draft_pipeline(
+        req.extracted or {},
+        use_llm_for_slides=req.use_llm_for_slides,
+        use_llm_for_analysis=req.use_llm_for_analysis,
+    )
+    return {
+        "success": True,
+        "result": result,
+    }
 
 
 @app.get("/api/health")
@@ -195,17 +196,7 @@ async def health_check():
             "error": str(e),
             "ml_services": {"status": "error"}
         }
-
-@app.post("/api/generate-draft")
-async def generate_draft(req: DraftRequest):
-    extracted = req.pv_data or {}
-    draft = generate_pv_draft(OLLAMA_MODEL, extracted)
-    return {
-        "success": True,
-        "draft": draft
-    }
-
-           
+         
 @app.post("/api/merge-notes")
 async def merge_notes(req: MergeRequest):
     """Fusionner les notes des participants dans le PV via LLM."""
@@ -252,6 +243,8 @@ async def merge(req: MergeRequest):
 @app.post("/api/export")
 async def export_alias(req: ExportRequest):
     return await export_docx(req)
+
+
 
 
 if __name__ == "__main__":

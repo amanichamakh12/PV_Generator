@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8001";
+
 export default function StepImport({ state, setState, next }) {
   const [loading, setLoading] = useState(false);
 
@@ -16,12 +18,22 @@ export default function StepImport({ state, setState, next }) {
     formData.append("file", state.file);
 
     try {
-      const res = await fetch("http://localhost:8001/api/parse-pptx", {
+      const res = await fetch(`${API_BASE}/api/parse-pptx`, {
         method: "POST",
         body: formData,
       });
 
-      const data = await res.json();
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Erreur API (${res.status})`);
+      }
+
+      const rawText = await res.text();
+      if (!rawText.trim()) {
+        throw new Error("Réponse vide de /api/parse-pptx");
+      }
+
+      const data = JSON.parse(rawText);
 
       setState({
         extracted: data,

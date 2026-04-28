@@ -285,7 +285,7 @@
         <p>Importez votre fichier PowerPoint ou PDF pour extraire automatiquement la structure du PV.</p>
       </div>
 
-         <div class="card">
+         <div class="card" id="importCard">
         <div class="card-title">Charger un fichier</div>
         <div class="upload-zone" id="dropzone" onclick="document.getElementById('fileInput').click()"
              ondragover="event.preventDefault();this.classList.add('dragover')"
@@ -324,12 +324,20 @@
           <p class="text-muted" style="font-size:12px;margin-top:8px">Ce texte est une version lisible des données extraites. Le draft est généré à partir des données structurées sous-jacentes.</p>
         </div>
         <div class="flex gap-8 mt-12">
-          <button class="btn btn-secondary" onclick="generateStructuredDraft()">
+          <button class="btn btn-secondary" id="generateDraftBtn" onclick="generateStructuredDraft()">
             Générer le draft PV
           </button>
           <button class="btn btn-primary" onclick="goToDraftEditor()">
             Voir le PV généré
           </button>
+        </div>
+      </div>
+
+      <div class="card hidden" id="draftLoadingCard">
+        <div class="card-title">Génération du draft</div>
+        <div class="text-muted flex items-center gap-8">
+          <span class="spinner spinner-dark"></span>
+          Génération du draft en cours... merci de patienter.
         </div>
       </div>
     </div>
@@ -431,7 +439,7 @@
 <div id="toast"></div>
 
 <script>
-const API = 'http://localhost:8001';
+const API = window.API_BASE_URL || 'http://localhost:8001';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
@@ -498,8 +506,17 @@ async function extractFile() {
   try {
     const res = await fetch(`${API}/api/parse-pptx`, { method: 'POST', body: formData });
     if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    const extracted = data.extracted ?? data.pv ?? data;
+    const rawText = await res.text();
+    if (!rawText.trim()) throw new Error('Réponse vide de /api/parse-pptx');
+
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`Réponse non JSON: ${rawText.slice(0, 180)}`);
+    }
+
+    const extracted = unwrapExtractedPayload(data);
     state.extracted = extracted;
     state.pvDraft = null;
     state.pvFinal = null;
@@ -513,6 +530,101 @@ async function extractFile() {
     document.getElementById('extractLoading').classList.add('hidden');
     document.getElementById('extractBtn').disabled = false;
   }
+}
+
+function unwrapExtractedPayload(data) {
+  let cur = data;
+  for (let i = 0; i < 6; i++) {
+    if (typeof cur === 'string') {
+      try {
+        cur = JSON.parse(cur);
+      } catch {
+        return {};
+      }
+      continue;
+    }
+    if (!cur || typeof cur !== 'object') return {};
+    if (Array.isArray(cur.slides) || cur.meta || cur.points_discutes || cur.ordre_du_jour) {
+      return cur;
+    }
+    if (cur.extracted) { cur = cur.extracted; continue; }
+    if (cur.pv) { cur = cur.pv; continue; }
+    if (cur.data) { cur = cur.data; continue; }
+    if (cur.result) { cur = cur.result; continue; }
+    if (cur.payload) { cur = cur.payload; continue; }
+    if (cur.response) { cur = cur.response; continue; }
+    return cur;
+  }
+  return cur && typeof cur === 'object' ? cur : {};
+}
+
+function normalizeExtractedData(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+
+  // Ancien format déjà attendu par le frontend
+  if (raw.meta || raw.points_discutes || raw.ordre_du_jour) {
+    return raw;
+  }
+
+  // Nouveau format parse-pptx (nb_slides, slides, etc.)
+  if (!Array.isArray(raw.slides)) return {};
+
+  const slides = raw.slides;
+  const agendaItems = [];
+  const agendaSeen = new Set();
+
+  for (const slide of slides) {
+    const item = (slide?.["ordre du jour"] || "").toString().trim();
+    if (!item) continue;
+    const key = item.toLowerCase();
+    if (!agendaSeen.has(key)) {
+      agendaSeen.add(key);
+      agendaItems.push(item);
+    }
+  }
+
+  const pointsDiscutes = slides
+    .filter((slide) => {
+      const title = (slide?.titre || "").toString().trim().toLowerCase();
+      return title !== "ordre du jour";
+    })
+    .map((slide, idx) => {
+      const contenu = Array.isArray(slide?.contenu) ? slide.contenu.filter(Boolean) : [];
+      const notes = slide?.notes ? [String(slide.notes)] : [];
+      const tableaux = Array.isArray(slide?.tableaux) && slide.tableaux.length > 0
+        ? [`${slide.tableaux.length} tableau(x)`]
+        : [];
+      const graphiques = Array.isArray(slide?.graphiques)
+        ? slide.graphiques
+            .map((g) => g?.resume_pv)
+            .filter(Boolean)
+        : [];
+
+      return {
+        titre: (slide?.titre || `Slide ${slide?.index ?? idx + 1}`).toString(),
+        contenu: [...contenu, ...tableaux, ...graphiques, ...notes],
+      };
+    });
+
+  return {
+    meta: {
+      titre_reunion: slides[0]?.titre || "Réunion",
+      date: "",
+      heure_debut: "",
+      heure_fin: "",
+      lieu: "",
+      nb_slides: raw.nb_slides ?? slides.length,
+      nb_slides_vides: raw.nb_slides_vides ?? 0,
+      nb_graphiques_natifs: raw.nb_graphiques_natifs ?? 0,
+      nb_images_ocr: raw.nb_images_ocr ?? 0,
+    },
+    participants: [],
+    ordre_du_jour: agendaItems,
+    points_discutes: pointsDiscutes,
+    decisions: [],
+    actions: [],
+    raw_slides: slides,
+  };
 }
 
 async function loadSampleData() {
@@ -628,12 +740,42 @@ function buildSamplePV() {
 }
 
 function showExtractedPreview(data) {
+  if (Array.isArray(data?.slides)) {
+    const slides = data.slides;
+    const agendaItems = [...new Set(
+      slides.map(s => (s?.["ordre du jour"] || "").toString().trim()).filter(Boolean)
+    )];
+    const points = slides.map((s, idx) => `
+      <div class="extract-point" style="margin-bottom:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#FAFBFF">
+        <div><strong>${s.titre || `Slide ${s.index ?? idx + 1}`}</strong></div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px">
+          ${Array.isArray(s.contenu) ? (s.contenu.slice(0, 2).join(' • ') || 'Contenu absent') : 'Contenu absent'}
+        </div>
+      </div>
+    `).join('');
+
+    document.getElementById('extractResult').classList.remove('hidden');
+    document.getElementById('extractedPreview').innerHTML = `
+      <div class="form-row">
+        <div><span class="text-muted">Titre :</span> <strong>${slides[0]?.titre || '—'}</strong></div>
+        <div><span class="text-muted">Date :</span> <strong>—</strong></div>
+        <div><span class="text-muted">Participants :</span> <strong>0</strong></div>
+        <div><span class="text-muted">Points :</span> <strong>${slides.length}</strong></div>
+      </div>
+      <div class="form-group"><label>Participants</label><div class="text-muted">Non fournis par /api/parse-pptx</div></div>
+      <div class="form-group"><label>Ordre du jour</label><div>${agendaItems.map(o => `<span class="badge badge-amber" style="margin-right:6px;margin-bottom:6px">${o}</span>`).join('') || '<span class="text-muted">Aucun</span>'}</div></div>
+      <div class="form-group"><label>Points discutés</label>${points || '<div class="text-muted">Aucun point détecté</div>'}</div>
+    `;
+    renderExtractedEditor(data);
+    return;
+  }
+
   const meta = data.meta || {};
   const participants = (data.participants || []).map(p => typeof p === 'string' ? p : p.nom || JSON.stringify(p));
   const points = (data.points_discutes || []).map(pt => `
       <div class="extract-point" style="margin-bottom:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#FAFBFF">
         <div><strong>${pt.titre || 'Point sans titre'}</strong></div>
-        <div style="font-size:13px;color:var(--muted);margin-top:6px">${(pt.contenu || []).join(' • ') || 'Contenu absent'}</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px">${Array.isArray(pt.contenu) ? (pt.contenu.join(' • ') || 'Contenu absent') : (pt.contenu || 'Contenu absent')}</div>
       </div>
     `).join('');
   const decisions = (data.decisions || []).map(d => `<li>${typeof d === 'string' ? d : JSON.stringify(d)}</li>`).join('');
@@ -650,10 +792,6 @@ function showExtractedPreview(data) {
     <div class="form-group"><label>Participants</label><div>${participants.map(p => `<span class="badge badge-blue" style="margin-right:6px;margin-bottom:6px">${p}</span>`).join('')}</div></div>
     <div class="form-group"><label>Ordre du jour</label><div>${(data.ordre_du_jour||[]).map(o => `<span class="badge badge-amber" style="margin-right:6px;margin-bottom:6px">${o}</span>`).join('')}</div></div>
     <div class="form-group"><label>Points discutés</label>${points || '<div class="text-muted">Aucun point détecté</div>'}</div>
-    <div class="form-row">
-      <div class="form-group"><label>Décisions</label><ul style="padding-left:18px;margin-top:8px;color:var(--muted)">${decisions || '<li>Aucune décision détectée</li>'}</ul></div>
-      <div class="form-group"><label>Actions</label><ul style="padding-left:18px;margin-top:8px;color:var(--muted)">${actions || '<li>Aucune action détectée</li>'}</ul></div>
-    </div>
   `;
   renderExtractedEditor(data);
 }
@@ -665,6 +803,70 @@ function renderExtractedEditor(data) {
 }
 
 function buildExtractedText(data) {
+  if (Array.isArray(data?.slides)) {
+    const lines = [];
+    const slides = data.slides;
+
+    lines.push(`Présentation analysée : ${data.nb_slides ?? slides.length} slide(s).`);
+    lines.push(`Slides vides : ${data.nb_slides_vides ?? 0}.`);
+    lines.push(`Graphiques natifs détectés : ${data.nb_graphiques_natifs ?? 0}.`);
+    lines.push(`Images OCR détectées : ${data.nb_images_ocr ?? 0}.`);
+    lines.push("");
+
+    slides.forEach((slide, idx) => {
+      const slideNo = slide?.index ?? idx + 1;
+      const titre = (slide?.titre || `Slide ${slideNo}`).toString().trim();
+      const odj = (slide?.["ordre du jour"] || "").toString().trim();
+      const contenu = Array.isArray(slide?.contenu) ? slide.contenu.filter(Boolean) : [];
+      const tableaux = Array.isArray(slide?.tableaux) ? slide.tableaux : [];
+      const graphiques = Array.isArray(slide?.graphiques) ? slide.graphiques : [];
+      const images = Array.isArray(slide?.images) ? slide.images : [];
+      const notes = slide?.notes ? String(slide.notes).trim() : "";
+
+      lines.push(`Slide ${slideNo} — ${titre}`);
+      if (odj) lines.push(`Point d'ordre du jour : ${odj}.`);
+
+      if (contenu.length > 0) {
+        const synth = contenu.slice(0, 3).join(" ; ");
+        lines.push(`Contenu principal : ${synth}.`);
+      } else {
+        lines.push("Contenu principal : aucun texte significatif détecté.");
+      }
+
+      if (tableaux.length > 0) {
+        const tableDesc = tableaux
+          .map((t, i) => `tableau ${i + 1} (${t.nb_lignes || 0} lignes x ${t.nb_colonnes || 0} colonnes)`)
+          .join(", ");
+        lines.push(`Tableaux : ${tableaux.length} détecté(s) — ${tableDesc}.`);
+      }
+
+      if (graphiques.length > 0) {
+        const graphDesc = graphiques.map((g, i) => {
+          const type = g?.type || "type inconnu";
+          const gtitre = g?.titre ? `, intitulé "${g.titre}"` : "";
+          return `graphique ${i + 1} (${type}${gtitre})`;
+        }).join(", ");
+        lines.push(`Graphiques : ${graphiques.length} détecté(s) — ${graphDesc}.`);
+      }
+
+      if (images.length > 0) {
+        lines.push(`Images : ${images.length} élément(s) visuel(s) analysé(s).`);
+      }
+
+      if (notes) {
+        lines.push(`Notes de slide : ${notes}.`);
+      }
+
+      if (slide?.est_vide) {
+        lines.push("Observation : cette slide est considérée comme vide.");
+      }
+
+      lines.push("");
+    });
+
+    return lines.join("\n").trim();
+  }
+
   const meta = data.meta || {};
   const lines = [];
   lines.push(`Titre : ${meta.titre_reunion || 'Non renseigné'}`);
@@ -687,7 +889,11 @@ function buildExtractedText(data) {
     lines.push('Points discutés :');
     points.forEach((pt, i) => {
       lines.push(`${i + 1}. ${pt.titre || 'Sans titre'}`);
-      if (pt.contenu?.length) lines.push(`   • ${pt.contenu.join(' / ')}`);
+      if (Array.isArray(pt.contenu) && pt.contenu.length) {
+        lines.push(`   • ${pt.contenu.join(' / ')}`);
+      } else if (pt.contenu) {
+        lines.push(`   • ${pt.contenu}`);
+      }
     });
     lines.push('');
   }
@@ -711,8 +917,12 @@ async function generateStructuredDraft() {
     return;
   }
 
+  document.getElementById('importCard')?.classList.add('hidden');
+  document.getElementById('extractResult')?.classList.add('hidden');
+  document.getElementById('draftLoadingCard')?.classList.remove('hidden');
   document.getElementById('extractLoading').classList.remove('hidden');
   document.getElementById('extractBtn').disabled = true;
+  document.getElementById('generateDraftBtn')?.setAttribute('disabled', 'disabled');
 
   try {
     const res = await fetch(`${API}/api/generate-draft`, {
@@ -744,8 +954,12 @@ async function generateStructuredDraft() {
   } catch (e) {
     toast('Erreur génération draft : ' + e.message, 'error');
   } finally {
+    document.getElementById('draftLoadingCard')?.classList.add('hidden');
+    document.getElementById('importCard')?.classList.remove('hidden');
+    document.getElementById('extractResult')?.classList.remove('hidden');
     document.getElementById('extractLoading').classList.add('hidden');
     document.getElementById('extractBtn').disabled = false;
+    document.getElementById('generateDraftBtn')?.removeAttribute('disabled');
   }
 }
 

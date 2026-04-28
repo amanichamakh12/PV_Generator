@@ -12,6 +12,14 @@ from typing import Optional
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from datetime import datetime
+import json
+from datetime import date
+
+today = date.today().strftime("%d/%m/%Y")
+
+SYSTEM_PV = """Tu es un expert en rédaction de procès-verbaux institutionnels pour des comités bancaires.
+Tu rédiges en français administratif formel. Tu ne génères QUE du JSON valide, sans explication."""
 
 
 # ─── Template PV ───────────────────────────────────────────────────────────────
@@ -64,6 +72,7 @@ ACTION_TEMPLATE = {
 
 # ─── Config backend IA ─────────────────────────────────────────────────────────
 
+today = datetime.now().strftime("%d/%m/%Y")
 # Détection automatique : Claude si ANTHROPIC_API_KEY présente, sinon Ollama
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL        = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -128,72 +137,172 @@ def _extract_json(text: str) -> dict | None:
 
 
 def _build_fallback_pv(extracted: dict) -> dict:
-    """Construire un PV minimal à partir des données extraites sans LLM."""
-    pv = json.loads(json.dumps(EMPTY_PV_TEMPLATE))  # deep copy
-    meta = extracted.get("meta", {})
+    """
+    Fallback sans LLM : construit un PV structuré complet
+    en mappant chaque point ODJ à ses données de slide.
+    """
+    slides = extracted.get("slides", [])
+    odj    = _extract_odj(slides) or extracted.get("ordre_du_jour", [])
 
-    pv["date"]        = meta.get("date", "")
-    pv["heure_debut"] = meta.get("heure_debut", "")
-    pv["lieu"]        = meta.get("lieu", "")
-    pv["titre"]       = meta.get("titre_reunion", "Réunion de Comité")
-    pv["numero"]      = meta.get("numero", "PV-2025-001")
-
-    pv["participants"] = [
-        {"nom": p, "fonction": "", "present": True}
-        for p in extracted.get("participants", [])
-    ]
-    pv["ordre_du_jour"] = extracted.get("ordre_du_jour", [])
-    pv["decisions"]     = [d.get("decision", d) if isinstance(d, dict) else d
-                           for d in extracted.get("decisions", [])]
-
-    pv["points"] = [
-        {
-            "numero": str(i + 1),
-            "titre": pt.get("titre", f"Point {i+1}"),
-            "expose": " ".join(pt.get("contenu", [])),
-            "discussion": "",
-            "remarques": [],
-            "conclusion": ""
-        }
-        for i, pt in enumerate(extracted.get("points_discutes", []))
+    # Participants
+    participants_raw = extracted.get("participants", [])
+    participants = [
+        {"nom": p, "fonction": "", "present": True} if isinstance(p, str)
+        else {"nom": p.get("nom", ""), "fonction": p.get("fonction", ""), "present": True}
+        for p in participants_raw
     ]
 
-    pv["plan_action"] = [
-        {
-            "id": f"A{str(i+1).zfill(2)}",
-            "action": a.get("action", a) if isinstance(a, dict) else a,
-            "responsable": "",
-            "echeance": "",
-            "statut": "En cours",
-            "priorite": "Normale"
-        }
-        for i, a in enumerate(extracted.get("actions", []))
-    ]
+    # Titre
+    titre_reunion = ""
+    for s in slides:
+        t = s.get("titre") or ""
+        if t and not t.isdigit() and len(t) > 5 and "ordre" not in t.lower():
+            titre_reunion = t
+            break
+    titre_reunion = titre_reunion or extracted.get("meta", {}).get("titre_reunion", "Comité des Risques")
 
-    return pv
+    # Participants pour introduction
+    participants_intro = "\n".join(
+        f"• {p['nom']}{' : ' + p['fonction'] if p['fonction'] else ''}"
+        for p in participants
+    ) or "• [À compléter]"
 
+    # Introduction
+    odj_liste = "\n".join(f"{i+1}. {t}" for i, t in enumerate(odj))
+    introduction = (
+        f"Le Comité des risques de Wifak Banque s'est réuni le {today} à 09h00 "
+        f"au Centre d'Affaires de Tunis, sur invitation de son Président, "
+        f"pour délibérer sur l'ordre du jour suivant :\n\n{odj_liste}\n\n"
+        f"Étaient présents :\n{participants_intro}\n\n"
+        f"La feuille de présence a été établie et dûment signée par les membres présents.\n\n"
+        f"Après avoir constaté la présence requise des membres, le Président a ouvert "
+        f"les travaux du Comité en souhaitant la bienvenue aux présents."
+    )
+
+    # Génération des points ODJ
+    points = []
+    for i, titre_odj in enumerate(odj):
+        num = i + 1
+
+        if num == 1:
+            # Point 1 toujours identique
+            points.append({
+                "numero":     "1",
+                "titre":      titre_odj,
+                "expose":     "",
+                "discussion": (
+                    "Les membres présents ont approuvé l'ordre du jour et ont procédé "
+                    "à l'examen des points inscrits sur lesquels ils ont délibéré."
+                ),
+                "conclusion": "",
+            })
+            continue
+
+        # Données brutes de la slide correspondante
+        data_bloc = _build_point_data(num, titre_odj, slides)
+
+        # Expose générique + données
+        expose = (
+            f"Dans le cadre du point relatif à « {titre_odj} », "
+            f"le Comité a procédé à l'examen des indicateurs et données présentés."
+        )
+
+        points.append({
+            "numero":     str(num),
+            "titre":      titre_odj,
+            "expose":     expose,
+            "discussion": data_bloc,
+            "conclusion": (
+                f"Le Comité a pris acte des informations relatives au point {num} "
+                f"et a délibéré en conséquence."
+            ),
+        })
+
+    # Plan d'action depuis les tableaux de la dernière slide de contenu
+    plan_action = []
+    action_idx = 1
+    for slide in slides:
+        for t in slide.get("tableaux", []):
+            lignes = t.get("lignes", [])
+            if not lignes:
+                continue
+            headers = [h.lower() for h in lignes[0]]
+            # Détecte si c'est un tableau d'actions
+            if any("action" in h for h in headers):
+                col = {h: i for i, h in enumerate(headers)}
+                for row in lignes[1:]:
+                    if not any(row):
+                        continue
+                    plan_action.append({
+                        "id":          f"A{str(action_idx).zfill(2)}",
+                        "action":      row[col.get("action", 1)] if len(row) > col.get("action", 1) else "",
+                        "responsable": row[col.get("responsable", 2)] if "responsable" in col and len(row) > col["responsable"] else "",
+                        "echeance":    row[col.get("échéance", col.get("echeance", 3))] if len(row) > 3 else "",
+                        "statut":      row[col.get("statut", 5)] if "statut" in col and len(row) > col.get("statut", 5) else "En cours",
+                        "priorite":    row[col.get("priorité", col.get("priorite", 4))] if len(row) > 4 else "Normale",
+                    })
+                    action_idx += 1
+
+    # Prochaine réunion
+    prochaine_date = ""
+    for slide in slides:
+        for c in slide.get("contenu", []):
+            import re
+            m = re.search(r"(\w+\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})", c)
+            if m and ("prochain" in c.lower() or "juillet" in c.lower()):
+                prochaine_date = m.group(1)
+                break
+
+    return {
+        "numero":           f"PV-{today.replace('/', '-')}",
+        "titre":            titre_reunion,
+        "type_reunion":     "Comité des Risques",
+        "date":             today,
+        "heure_debut":      "09h00",
+        "heure_fin":        "",
+        "lieu":             "Centre d'Affaires de Tunis",
+        "president_seance": "",
+        "redacteur":        "Direction des Risques",
+        "introduction":     introduction,
+        "participants":     participants,
+        "excuses":          [],
+        "ordre_du_jour":    odj,
+        "points":           points,
+        "decisions":        [],
+        "plan_action":      plan_action,
+        "prochaine_reunion": {
+            "date":  prochaine_date,
+            "lieu":  "",
+            "points_previsionnels": [],
+        },
+        "approbation": {
+            "date":      "",
+            "signataire": "",
+            "statut":    "En attente",
+        },
+    }
 
 TARGET_PV_STRUCTURE = {
+    "introduction": "",
+    
+    "ordre_du_jour": [
+        {
+            "numero": "1",
+            "titre": ""
+        }
+    ],
+    
     "points": [
         {
             "numero": "1",
             "titre": "",
             "type": "constat | deliberation | decision",
-            "texte_pv": ""
-        }
-    ],
-    "decisions": ["..."],
-    "plan_action": [
-        {
-            "id": "A01",
-            "action": "",
-            "responsable": "",
-            "echeance": "",
-            "statut": "En cours"
+            "expose": "",
+            "discussion": "",
+            "conclusion": ""
         }
     ]
 }
-
 
 def export_pv_to_docx(pv: dict, output_path: Optional[str] = None, language: str = "fr") -> str:
     """Exporter un PV structuré en fichier Word (.docx)."""
@@ -396,70 +505,280 @@ STYLE IMPOSÉ :
   "La délibération acte", "Une résolution a été adoptée à l'unanimité"
 """
 
+def _collect_slides_for_odj(odj_titre: str, slides: list) -> list:
+    """Retourne toutes les slides rattachées à un item ODJ."""
+    target = (odj_titre or "").strip().lower()
+    if not target:
+        return []
+    matched = []
+    for slide in slides:
+        odj = (slide.get("ordre du jour") or "").strip().lower()
+        if odj == target:
+            matched.append(slide)
+    return matched
+
+
+def _build_point_data(odj_index: int, odj_titre: str, slides: list) -> str:
+    """
+    Extrait et formate toutes les données extraites des slides
+    qui correspondent à ce point de l'ordre du jour.
+    Retourne un bloc texte structuré prêt pour le prompt.
+    """
+    linked_slides = _collect_slides_for_odj(odj_titre, slides)
+    if not linked_slides:
+        return f"Aucune donnée extraite pour le point {odj_index}."
+
+    lines = [f"=== Données extraites — Point ODJ {odj_index} : {odj_titre} ==="]
+
+    for slide in linked_slides:
+        lines.append(f"\n--- Slide {slide.get('index', '?')} : {slide.get('titre') or 'Sans titre'} ---")
+
+        contenu = [
+            c for c in slide.get("contenu", [])
+            if isinstance(c, str) and len(c.strip()) > 2 and not c.strip().upper().startswith("POINT")
+        ]
+        if contenu:
+            lines.append("Éléments textuels : " + " | ".join(contenu))
+
+        for g in slide.get("graphiques", []):
+            lines.append(f"\nGraphique : {g.get('titre', g.get('type', ''))}")
+            lines.append(g.get("resume_pv", ""))
+
+        for img in slide.get("images", []):
+            if img:
+                lines.append(f"\nImage analysée :\n{img}")
+
+        for t in slide.get("tableaux", []):
+            lignes = t.get("lignes", [])
+            if not lignes:
+                continue
+            lines.append(f"\nTableau ({t['nb_lignes']} lignes × {t['nb_colonnes']} colonnes) :")
+            header = " | ".join(lignes[0])
+            lines.append(header)
+            lines.append("-" * len(header))
+            for row in lignes[1:]:
+                lines.append(" | ".join(row))
+
+    return "\n".join(lines)
+
+
+def _extract_odj(slides: list) -> list:
+    """
+    Extrait la liste propre de l'ordre du jour depuis les slides.
+    Cherche la slide dont le titre contient 'ordre du jour'.
+    """
+    for slide in slides:
+        titre = (slide.get("titre") or "").lower()
+        contenu_join = " ".join(slide.get("contenu", [])).lower()
+
+        if "ordre du jour" in titre or "ordre du jour" in contenu_join:
+            raw = slide.get("contenu", [])
+            # Filtre les éléments parasites (durées "10 min", numéros seuls)
+            propre = [
+                c for c in raw
+                if len(c) > 8
+                and not c.strip().isdigit()
+                and not c.strip().lower() in ("ordre du jour",)
+                and not c.strip().endswith("min")
+                and not c.strip().endswith("min.")
+            ]
+            return propre
+    return []
+
+
 def generate_pv_draft(client, extracted: dict) -> dict:
-    """Générer un PV draft analytique et financier à partir du contenu extrait."""
+    """
+    Génère un PV draft structuré à partir du contenu extrait.
+    Mappe explicitement chaque point ODJ aux données de sa slide.
+    """
+    slides = extracted.get("slides", [])
+    odj    = _extract_odj(slides)
 
-    prompt = f"""À partir de cette extraction de présentation de comité bancaire, génère un PV analytique structuré.
+    if not odj:
+        odj = extracted.get("ordre_du_jour", [])
 
-DONNÉES EXTRAITES :
-{json.dumps(extracted, ensure_ascii=False, indent=2)}
+    # Matrice de preuves slide par slide (injectée telle quelle au LLM)
+    evidence_matrix = []
+    for s in slides:
+        evidence_matrix.append({
+            "index": s.get("index"),
+            "titre": s.get("titre"),
+            "ordre_du_jour": s.get("ordre du jour"),
+            "contenu": s.get("contenu", []),
+            "tableaux": s.get("tableaux", []),
+            "graphiques": s.get("graphiques", []),
+            "images": s.get("images", []),
+            "notes": s.get("notes"),
+        })
 
-STRUCTURE DE RÉPONSE EXACTE :
-{json.dumps(TARGET_PV_STRUCTURE, ensure_ascii=False, indent=2)}
+    # Construit le bloc de données par point ODJ
+    points_data_blocks = []
+    for i, titre in enumerate(odj):
+        bloc = _build_point_data(i + 1, titre, slides)
+        points_data_blocks.append(bloc)
 
-RÈGLES DE RÉDACTION ANALYTIQUE :
+    points_data_str = "\n\n".join(points_data_blocks)
 
-1. EXPOSÉ (champ "expose") :
-   - Présente le contexte chiffré : "M. X a soumis à l'examen du Comité les indicateurs 
-     relatifs à [sujet], faisant état d'un [ratio/indicateur] de [valeur] au [date]."
-   - Inclure systématiquement une référence comparative (N-1, budget, benchmark)
+    # Participants
+    participants_raw = extracted.get("participants", [])
+    participants_str = "\n".join(
+        f"- {p}" if isinstance(p, str) else f"- {p.get('nom', '')} : {p.get('fonction', '')}"
+        for p in participants_raw
+    ) or "- [À compléter]"
 
-2. DISCUSSION (champ "discussion") :
-   - Décompose les drivers de performance : effet volume, effet prix, effet mix
-   - Formule les risques en termes quantifiés : "Un glissement de +15 bps du coût 
-     du risque a été relevé, portant le NPL ratio à X%"
-   - Mentionne les ratios prudentiels si pertinent (LCR, tier 1, NSFR)
-   - Cite les écarts vs plan : "L'écart défavorable de X M€ par rapport au budget 
-     s'explique principalement par..."
-   - 4 à 7 phrases avec connecteurs analytiques
+    # Titre
+    titre_reunion = ""
+    for s in slides:
+        t = s.get("titre") or ""
+        if t and not t.isdigit() and len(t) > 5 and "ordre" not in t.lower():
+            titre_reunion = t
+            break
+    if not titre_reunion:
+        titre_reunion = extracted.get("meta", {}).get("titre_reunion", "Comité des Risques")
 
-3. CONCLUSION (champ "conclusion") :
-   - Formulation décisionnelle ferme : "Le Comité a arrêté / résolu / acté"
-   - Inclure les seuils et conditions : "sous réserve que le ratio [X] demeure 
-     supérieur à [seuil]", "conditionné à l'atteinte de [KPI]"
-   - Mentionner le niveau de priorité et l'horizon temporel
+    prompt = f"""
+Tu dois générer un procès-verbal COMPLET en JSON strict.
+Date du jour : {today}
+Titre de la réunion : {titre_reunion}
 
-4. DÉCISIONS (champ "decisions") :
-   - Format : "[Verbe décisionnel] + [objet précis] + [condition/seuil si applicable]"
-   - Exemples : 
-     "Validation de l'enveloppe de crédit de X M€ assortie d'un covenant 
-      de maintien du DSCR au-dessus de 1,25x"
-     "Autorisation du provisionnement additionnel de X M€ sur le portefeuille NPL 
-      conformément aux exigences IFRS 9"
+RÈGLE ABSOLUE ANTI-HALLUCINATION :
+- Interdiction d'inventer toute information.
+- Utilise EXCLUSIVEMENT les données présentes dans PREUVES STRUCTURÉES.
+- Si une information n'est pas disponible (participants, heure, lieu, décisions...), laisse le champ vide ("") ou [].
+- N'ajoute jamais de participant, point ODJ, chiffre, action ou décision non présent dans les preuves.
 
-5. PLAN D'ACTION (champ "plan_action") :
-   - Action : verbe d'action + livrable précis (ex: "Produire le rapport de back-testing 
-     VAR à 99% sur l'horizon 10 jours")
-   - Inclure la métrique de succès dans l'intitulé si possible
+═══════════════════════════════════════
+ORDRE DU JOUR ({len(odj)} points) :
+═══════════════════════════════════════
+{chr(10).join(f"{i+1}. {t}" for i, t in enumerate(odj))}
 
-RÈGLES GÉNÉRALES :
-- Aucun bullet point dans les champs texte
-- Tous les chiffres en format européen (1 234,56 M€)
-- Abréviations financières en majuscules (NPL, LCR, NSFR, RAROC, NIM)
-- Si un champ numérique est absent des données, extrapoler de façon cohérente 
-  avec le contexte ou laisser ""
-- RÉPONSE = JSON UNIQUEMENT, commence par {{"""
+═══════════════════════════════════════
+PARTICIPANTS :
+═══════════════════════════════════════
+{participants_str}
 
-    raw = _call_llm(SYSTEM_PV, prompt, max_tokens=4000)
+═══════════════════════════════════════
+DONNÉES EXTRAITES PAR POINT ODJ :
+═══════════════════════════════════════
+{points_data_str}
+
+═══════════════════════════════════════
+PREUVES STRUCTURÉES (JSON BRUT SLIDE PAR SLIDE) :
+═══════════════════════════════════════
+{json.dumps(evidence_matrix, ensure_ascii=False, indent=2)}
+
+═══════════════════════════════════════
+RÈGLES DE RÉDACTION OBLIGATOIRES :
+═══════════════════════════════════════
+
+1. INTRODUCTION :
+   - Ne mentionner QUE des éléments présents dans les preuves.
+   - Si date/heure/lieu/participants manquent, ne pas les inventer.
+
+2. POINTS : générer EXACTEMENT {len(odj)} points, un par élément de l'ordre du jour.
+   - Chaque point doit utiliser uniquement les slides portant le même "ordre du jour".
+   - Si aucune donnée pour un point, écrire explicitement qu'aucune donnée n'est disponible.
+   - Chaque point : exposé + discussion + conclusion, basés sur les preuves.
+   - Utiliser UNIQUEMENT "Le Comité" comme sujet.
+   - Interdiction de bullet points dans les champs texte.
+   - Incorporer uniquement les valeurs numériques présentes.
+   - Connecteurs obligatoires : "Toutefois", "Par ailleurs", "Ainsi", "En revanche".
+
+3. PLAN D'ACTION :
+   - Extraire uniquement les actions explicitement présentes dans les tableaux.
+   - Si aucune action explicite, retourner [].
+
+4. FORMAT DE SORTIE — JSON STRICT, commencer directement par {{ :
+
+{{
+  "numero": "PV-{today.replace('/', '-')}",
+  "titre": "{titre_reunion}",
+  "type_reunion": "",
+  "date": "{today}",
+  "heure_debut": "",
+  "heure_fin": "",
+  "lieu": "",
+  "president_seance": "",
+  "redacteur": "",
+  "introduction": "texte complet narratif...",
+  "participants": [{{"nom": "...", "fonction": "...", "present": true}}],
+  "excuses": [],
+  "ordre_du_jour": ["point 1", "point 2", ...],
+  "points": [
+    {{
+      "numero": "1",
+      "titre": "Confirmation de l'ordre du jour",
+      "expose": "...",
+      "discussion": "...",
+      "conclusion": "..."
+    }},
+    ...
+  ],
+  "decisions": [],
+  "plan_action": [
+    {{
+      "id": "A01",
+      "action": "...",
+      "responsable": "...",
+      "echeance": "...",
+      "statut": "En cours",
+      "priorite": "Haute"
+    }}
+  ],
+  "prochaine_reunion": {{"date": "", "lieu": "", "points_previsionnels": []}},
+  "approbation": {{"date": "", "signataire": "", "statut": "En attente"}}
+}}
+
+Ne rien expliquer. Commencer directement par {{
+"""
+
+    raw = _call_llm(SYSTEM_PV, prompt, max_tokens=6000)
     print(f"📨 Réponse LLM (200 chars): {raw[:200]}")
 
     parsed = _extract_json(raw)
     if parsed:
+        # Post-traitement : s'assure que le nombre de points = nombre ODJ
+        parsed = _ensure_points_match_odj(parsed, odj, slides)
         print("✅ JSON extrait avec succès")
         return parsed
 
-    print("⚠️ JSON non extrait — utilisation du fallback structurel")
+    print("⚠️ JSON non extrait — fallback structurel")
     return _build_fallback_pv(extracted)
+
+
+def _ensure_points_match_odj(pv: dict, odj: list, slides: list) -> dict:
+    """
+    Garantit que le PV a exactement autant de points que l'ODJ.
+    Corrige silencieusement si le LLM en a généré plus ou moins.
+    """
+    points_actuels = pv.get("points", [])
+
+    if len(points_actuels) == len(odj):
+        return pv  # parfait
+
+    # Recrée la liste complète
+    points_corriges = []
+    for i, titre_odj in enumerate(odj):
+        if i < len(points_actuels):
+            pt = points_actuels[i]
+            pt["numero"] = str(i + 1)
+            pt["titre"]  = titre_odj
+            points_corriges.append(pt)
+        else:
+            # Point manquant → génère depuis les données brutes
+            data = _build_point_data(i + 1, titre_odj, slides)
+            points_corriges.append({
+                "numero":     str(i + 1),
+                "titre":      titre_odj,
+                "expose":     f"Dans le cadre du point relatif à {titre_odj}, le Comité a procédé à l'examen des éléments présentés.",
+                "discussion": data,
+                "conclusion": f"Le Comité a pris acte des informations présentées au titre du point {i+1}.",
+            })
+
+    pv["points"] = points_corriges
+    return pv
+
+
 def merge_notes_with_pv(client, pv_draft: dict, notes: list) -> dict:
     """Fusionner les notes des participants avec le PV et reformuler via LLM."""
 
