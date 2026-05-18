@@ -1,0 +1,42 @@
+{
+  "name": "pv-automation-frontend",
+  "version": "1.0.0",
+  "description": "Module frontend React pour le système de génération automatique de procès-verbaux",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "dependencies": {
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.15.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.5.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.1",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.6",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0",
+    "vite": "^5.2.0"
+  },
+  "keywords": [
+    "react",
+    "frontend",
+    "pv",
+    "procès-verbal",
+    "automation"
+  ],
+  "author": "PV Automation Team",
+  "license": "MIT"
+}

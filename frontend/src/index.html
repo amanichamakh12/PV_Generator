@@ -439,7 +439,7 @@
 <div id="toast"></div>
 
 <script>
-const API = window.API_BASE_URL || 'http://localhost:8001';
+const API = window.API_BASE_URL || 'http://127.0.0.1:8001';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
@@ -925,10 +925,10 @@ async function generateStructuredDraft() {
   document.getElementById('generateDraftBtn')?.setAttribute('disabled', 'disabled');
 
   try {
-    const res = await fetch(`${API}/api/generate-draft`, {
+    const res = await fetch(`${API}/api/test-draft-pipeline`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ pv_data: state.extracted, extra_notes: '' })
+      body: JSON.stringify({ extracted: state.extracted, use_llm_for_slides: false, use_llm_for_analysis: true })
     });
     if (!res.ok) throw new Error(await res.text());
     let data;

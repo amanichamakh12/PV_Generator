@@ -22,21 +22,32 @@ import requests
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 
-
 SLIDE_PARAGRAPH_SYSTEM = """
-Tu rediges un paragraphe de proces-verbal a partir d'une slide.
-Contraintes :
-- style administratif, factuel, sans invention ;
-- utiliser uniquement les informations fournies ;
-- integrer texte, tableaux, graphiques, images et notes si presents ;
-- sortie JSON stricte ;
-- jamais de puces dans le paragraphe.
+Tu es un rédacteur de procès-verbaux officiels pour un comité bancaire.
 
-Format attendu :
+Ta tâche : rédiger UN SEUL paragraphe de compte rendu à partir des données d'une slide.
+
+RÈGLES ABSOLUES :
+- Rédige en français administratif, style factuel et neutre
+- N'utilise QUE les données fournies, sans invention
+- Intègre les chiffres des tableaux et graphiques dans la prose
+- Le paragraphe doit être continu, sans tirets, sans puces, sans listes
+- N'écris JAMAIS de JSON, de tableau, de symbole | dans ta réponse
+- N'écris JAMAIS les mots "slide", "tableau", "colonne", "JSON", "graphique" dans le paragraphe
+- Commence directement par le contenu, pas par une introduction méta
+
+STYLE ATTENDU (exemple) :
+"Au cours de ce point, le Comité a examiné l'évolution des engagements sur la période T1 2025.
+Le portefeuille global affiche une progression de +3.6%, atteignant 4 512 MMAD. Les Grandes
+Entreprises demeurent le segment dominant avec 2 078 MMAD, en hausse de +4.6% par rapport
+au trimestre précédent. Le segment Immobilier enregistre également une progression notable
+de +3.7%, portant l'exposition à 477 MMAD."
+
+FORMAT DE SORTIE — JSON strict, rien d'autre :
 {
-  "paragraphe": "paragraphe redige",
-  "points_cles": ["point 1", "point 2"],
-  "elements_actionnables": ["action 1"]
+  "paragraphe": "texte rédigé en prose continue, chiffres intégrés naturellement",
+  "points_cles": ["constat factuel 1", "constat factuel 2", "constat factuel 3"],
+  "elements_actionnables": ["action concrète si mentionnée dans les données"]
 }
 """.strip()
 
@@ -50,16 +61,15 @@ Contraintes :
 - mettre en avant constats, tendances, alertes, decisions implicites et suites a donner ;
 - style administratif et analytique ;
 - sortie JSON stricte.
-
+ 
 Format attendu :
 {
-  "analyse": "analyse consolidee",
-  "constats": ["..."],
-  "risques": ["..."],
-  "actions_suggerees": ["..."]
+  "analyse": "paragraphe d analyse consolidee sur l ensemble des slides de cet ordre du jour",
+  "constats": ["constat 1", "constat 2"],
+  "risques": ["risque 1", "risque 2"],
+  "actions_suggerees": ["action 1", "action 2"]
 }
 """.strip()
-
 
 def _post_ollama_json(system: str, prompt: str, max_tokens: int = 1200) -> dict[str, Any] | None:
     payload = {
@@ -67,7 +77,7 @@ def _post_ollama_json(system: str, prompt: str, max_tokens: int = 1200) -> dict[
         "prompt": (
             f"[INST] <<SYS>>\n{system}\n<</SYS>>\n\n"
             f"{prompt}\n\n"
-            "Reponds uniquement en JSON valide. [/INST]"
+            "Reponds en paragraphe professionnelle bien redigé. [/INST]"
         ),
         "stream": False,
         "options": {
@@ -77,15 +87,19 @@ def _post_ollama_json(system: str, prompt: str, max_tokens: int = 1200) -> dict[
     }
 
     try:
-        response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=120)
+        response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
         response.raise_for_status()
         raw = response.json().get("response", "").strip()
+        print(f"[LLM RAW] {raw[:200]}")   # ← ajoute ça
         if not raw:
+            print("[LLM] Réponse vide")   # ← et ça
             return None
-        return _extract_json_object(raw)
-    except Exception:
+        result = _extract_json_object(raw)
+        print(f"[LLM PARSED] {result}")   # ← et ça
+        return result
+    except Exception as e:
+        print(f"[LLM ERROR] {e}")          # ← et ça
         return None
-
 
 def _extract_json_object(raw: str) -> dict[str, Any] | None:
     raw = (raw or "").strip()
@@ -146,16 +160,59 @@ def _format_chart(chart: dict[str, Any]) -> str:
 
 def _build_slide_payload(slide: dict[str, Any]) -> dict[str, Any]:
     return {
-        "index": slide.get("index"),
-        "titre": slide.get("titre"),
+        "index":        slide.get("index"),
+        "titre":        slide.get("titre"),
         "ordre_du_jour": slide.get("ordre du jour") or slide.get("ordre_du_jour"),
-        "contenu": _compact_text_list(slide.get("contenu") or []),
-        "tableaux": [_format_table(table) for table in slide.get("tableaux") or [] if _format_table(table)],
-        "graphiques": [_format_chart(chart) for chart in slide.get("graphiques") or slide.get("graphes") or []],
-        "images": _compact_text_list(slide.get("images") or []),
-        "notes": _compact_text_list(slide.get("notes") or [] if isinstance(slide.get("notes"), list) else [slide.get("notes")] if slide.get("notes") else []),
+        "contenu":      _compact_text_list(slide.get("contenu") or []),
+        "tableaux":     [_format_table(t) for t in slide.get("tableaux") or [] if _format_table(t)],
+        "graphiques":   [_format_chart(c) for c in slide.get("graphiques") or []],
+        "images":       [_format_image(i) for i in slide.get("images") or []],  # ← corrigé
+        "notes":        _compact_text_list(
+                            slide.get("notes") or [] if isinstance(slide.get("notes"), list)
+                            else [slide.get("notes")] if slide.get("notes") else []
+                        ),
     }
 
+def _format_image(image: Any) -> str:
+    """Parse une image Groq/OCR et retourne un résumé texte lisible."""
+    if isinstance(image, str):
+        raw = image
+    elif isinstance(image, dict):
+        # Image analysée par Groq : extraire la description JSON
+        description = image.get("description") or ""
+        raw = description
+    else:
+        return str(image)
+
+    # Nettoie les backticks markdown ```json ... ```
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    # Tente de parser le JSON extrait par Groq
+    try:
+        data = json.loads(raw)
+        titre      = data.get("titre") or data.get("title") or "Graphique"
+        categories = data.get("categories") or []
+        series     = data.get("series") or []
+        observations = data.get("observations") or []
+
+        parts = [f"Graphique : {titre}"]
+        for serie in series:
+            nom     = serie.get("nom", "")
+            valeurs = serie.get("valeurs", [])
+            for cat, val in zip(categories, valeurs):
+                parts.append(f"  {cat} : {val}")
+        if observations:
+            parts.append("Observations : " + " ; ".join(observations))
+
+        return "\n".join(parts)
+    except (json.JSONDecodeError, Exception):
+        # Si pas du JSON, retourne le texte brut nettoyé
+        return raw[:300] if raw else ""
 
 def _heuristic_slide_paragraph(payload: dict[str, Any]) -> dict[str, Any]:
     title = payload.get("titre") or f"Slide {payload.get('index', '?')}"
@@ -191,15 +248,13 @@ def _heuristic_slide_paragraph(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def generate_slide_paragraph(slide: dict[str, Any], use_llm: bool = False) -> dict[str, Any]:
+def generate_slide_paragraph(slide: dict[str, Any]) -> dict[str, Any]:
     payload = _build_slide_payload(slide)
-
-    if use_llm:
-        llm_result = _post_ollama_json(
-            SLIDE_PARAGRAPH_SYSTEM,
+    llm_result = _post_ollama_json(
+        SLIDE_PARAGRAPH_SYSTEM,
             "Donnees slide:\n" + json.dumps(payload, ensure_ascii=False, indent=2),
         )
-        if llm_result and llm_result.get("paragraphe"):
+    if llm_result and llm_result.get("paragraphe"):
             return {
                 "slide_index": payload.get("index"),
                 "slide_title": payload.get("titre"),
@@ -224,8 +279,8 @@ def generate_slide_paragraph(slide: dict[str, Any], use_llm: bool = False) -> di
     }
 
 
-def group_slide_paragraphs_by_agenda(slide_paragraphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
+def group_slide_paragraphs_by_agenda(slide_paragraphs: list[dict[str, any]]) -> list[dict[str, any]]:
+    grouped: dict[str, dict[str, any]] = {}
 
     for item in slide_paragraphs:
         agenda = (item.get("ordre_du_jour") or "hors ordre du jour").strip()
@@ -252,14 +307,34 @@ def group_slide_paragraphs_by_agenda(slide_paragraphs: list[dict[str, Any]]) -> 
     return list(grouped.values())
 
 
-def build_agenda_analysis_input(agenda_group: dict[str, Any]) -> str:
+def build_agenda_analysis_input(agenda_group: dict[str, any]) -> str:
+    slides_list = agenda_group.get("slides", [])
+    if isinstance(slides_list, dict):
+        slides_list = [slides_list]
+
     slides = ", ".join(
         f"{slide.get('slide_index')}:{slide.get('slide_title') or 'Sans titre'}"
-        for slide in agenda_group.get("slides", [])
+        for slide in slides_list
     )
-    paragraphes = "\n\n".join(agenda_group.get("paragraphes", []))
-    points_cles = "\n".join(f"- {item}" for item in agenda_group.get("points_cles", [])[:12])
-    actions = "\n".join(f"- {item}" for item in agenda_group.get("elements_actionnables", [])[:12])
+
+    # Extraire depuis chaque slide, pas depuis agenda_group
+    paragraphes = "\n\n".join(
+        slide.get("paragraphe", "")
+        for slide in slides_list
+        if slide.get("paragraphe")
+    )
+
+    points_cles = "\n".join(
+        f"- {item}"
+        for slide in slides_list
+        for item in slide.get("points_cles", [])
+    )[:12]  # limite approximative
+
+    actions = "\n".join(
+        f"- {item}"
+        for slide in slides_list
+        for item in slide.get("elements_actionnables", [])
+    )
 
     return (
         f"Ordre du jour: {agenda_group.get('ordre_du_jour')}\n"
@@ -268,10 +343,9 @@ def build_agenda_analysis_input(agenda_group: dict[str, Any]) -> str:
         f"Points cles:\n{points_cles or '- Aucun'}\n\n"
         f"Elements actionnables:\n{actions or '- Aucun'}"
     )
-
-
-def analyze_agenda_group(agenda_group: dict[str, Any], use_llm: bool = False) -> dict[str, Any]:
+def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> dict[str, any]:
     analysis_input = build_agenda_analysis_input(agenda_group)
+    slides_list = agenda_group.get("slides", [])
 
     if use_llm:
         llm_result = _post_ollama_json(AGENDA_ANALYSIS_SYSTEM, analysis_input, max_tokens=1400)
@@ -280,9 +354,17 @@ def analyze_agenda_group(agenda_group: dict[str, Any], use_llm: bool = False) ->
                 "ordre_du_jour": agenda_group.get("ordre_du_jour"),
                 "input_analyse": analysis_input,
                 "analyse": llm_result.get("analyse", ""),
-                "constats": llm_result.get("constats", []),
+                "constats": [
+                    item
+                    for slide in slides_list
+                    for item in slide.get("points_cles", [])
+                ][:8],                
                 "risques": llm_result.get("risques", []),
-                "actions_suggerees": llm_result.get("actions_suggerees", []),
+                "actions_suggerees": [
+                    item
+                    for slide in slides_list
+                    for item in slide.get("elements_actionnables", [])
+                ][:8],                
                 "generation_mode": "llm",
             }
 
@@ -301,9 +383,13 @@ def analyze_agenda_group(agenda_group: dict[str, Any], use_llm: bool = False) ->
     }
 
 
-def generate_pv_draft_pipeline(extracted: dict[str, Any], use_llm_for_slides: bool = False, use_llm_for_analysis: bool = False) -> dict[str, Any]:
+
+
+
+
+def generate_pv_draft_pipeline(extracted: dict[str, any], use_llm_for_slides: bool = False, use_llm_for_analysis: bool = False) -> dict[str, any]:
     slides = extracted.get("slides") or []
-    slide_paragraphs = [generate_slide_paragraph(slide, use_llm=use_llm_for_slides) for slide in slides]
+    slide_paragraphs = [generate_slide_paragraph(slide) for slide in slides]
     agenda_groups = group_slide_paragraphs_by_agenda(slide_paragraphs)
     agenda_analyses = [analyze_agenda_group(group, use_llm=use_llm_for_analysis) for group in agenda_groups]
 
