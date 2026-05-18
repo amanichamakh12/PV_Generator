@@ -688,48 +688,7 @@ RÈGLES DE RÉDACTION OBLIGATOIRES :
    - Extraire uniquement les actions explicitement présentes dans les tableaux.
    - Si aucune action explicite, retourner [].
 
-4. FORMAT DE SORTIE — JSON STRICT, commencer directement par {{ :
-
-{{
-  "numero": "PV-{today.replace('/', '-')}",
-  "titre": "{titre_reunion}",
-  "type_reunion": "",
-  "date": "{today}",
-  "heure_debut": "",
-  "heure_fin": "",
-  "lieu": "",
-  "president_seance": "",
-  "redacteur": "",
-  "introduction": "texte complet narratif...",
-  "participants": [{{"nom": "...", "fonction": "...", "present": true}}],
-  "excuses": [],
-  "ordre_du_jour": ["point 1", "point 2", ...],
-  "points": [
-    {{
-      "numero": "1",
-      "titre": "Confirmation de l'ordre du jour",
-      "expose": "...",
-      "discussion": "...",
-      "conclusion": "..."
-    }},
-    ...
-  ],
-  "decisions": [],
-  "plan_action": [
-    {{
-      "id": "A01",
-      "action": "...",
-      "responsable": "...",
-      "echeance": "...",
-      "statut": "En cours",
-      "priorite": "Haute"
-    }}
-  ],
-  "prochaine_reunion": {{"date": "", "lieu": "", "points_previsionnels": []}},
-  "approbation": {{"date": "", "signataire": "", "statut": "En attente"}}
-}}
-
-Ne rien expliquer. Commencer directement par {{
+4. FORMAT DE SORTIE = un fichier .docx a telecharger
 """
 
     raw = _call_llm(SYSTEM_PV, prompt, max_tokens=6000)

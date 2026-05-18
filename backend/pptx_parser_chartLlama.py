@@ -7,7 +7,10 @@ from typing import Optional
 import requests
 import base64
 import re
-from chart_ocr_extractor import describe_image
+from PipelineMin import extract_chart_hybrid
+from ocr import get_ocr_tokens
+# from chart_ocr_extractor import describe_image  # ancien pipeline LLaVA/ocr
+from MeilleurVersionGraph import describe_image_groq
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
@@ -395,26 +398,45 @@ def parse_pptx(file_path: str) -> dict:
 
 
 
-def _extract_images(slide) -> list[str]:
+def _extract_images(slide) -> list[dict]:
     images_desc = []
     for shape in slide.shapes:
         if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-            desc = describe_image(shape.image.blob)
-            images_desc.append(desc)
+            result = _run_chart_pipeline(shape.image.blob)
+            images_desc.append(result)
         elif shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             images_desc.extend(_extract_images_from_group(shape.shapes))
     return images_desc
-
 
 def _extract_images_from_group(shapes):
     images_desc = []
     for shape in shapes:
         if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-            images_desc.append(describe_image(shape.image.blob))
+            images_desc.append(_run_chart_pipeline(shape.image.blob))
         elif shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             images_desc.extend(_extract_images_from_group(shape.shapes))
     return images_desc
 
+
+def _run_chart_pipeline(image_bytes: bytes) -> dict:
+    """
+    Remplace describe_image() — appelle le nouveau script MeilleurVersionGraph.
+    Retourne toujours un dict, jamais une exception.
+    """
+    try:
+        description = describe_image_groq(image_bytes)
+        if isinstance(description, dict):
+            return description
+        return {
+            "source": "groq",
+            "description": description,
+        }
+        # Ancien pipeline :
+        # tokens = get_ocr_tokens(image_bytes)
+        # result = extract_chart_hybrid(image_bytes, tokens)
+        # return result or {"erreur": "pipeline returned None"}
+    except Exception as e:
+        return {"erreur": str(e)}
 
 def _extract_title(slide) -> Optional[str]:
     """

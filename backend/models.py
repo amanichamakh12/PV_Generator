@@ -1,6 +1,10 @@
 # ── Models ────────────────────────────────────────────────────────────────────
+from langgraph import func
 from pydantic import BaseModel
-
+from sqlalchemy import Column
+from sqlalchemy import Column, Integer, DateTime, Text
+from sqlalchemy.sql import func
+from db_connection import Base
 
 class Note(BaseModel):
     participant: str
@@ -23,17 +27,54 @@ class DraftRequest(BaseModel):
 
 class SlideParagraphRequest(BaseModel):
     slide: dict
-    use_llm: bool = False
-
+class AgendaFullRequest(BaseModel):
+    ordre_du_jour: str
+    slides: list[dict]  # slides bruts (input étape 2)
+    use_llm: bool = True
+    
 class AgendaAnalysisRequest(BaseModel):
     agenda_group: dict
-    use_llm: bool = False
+    use_llm: bool = True
 
 class DraftPipelineRequest(BaseModel):
     extracted: dict
-    use_llm_for_slides: bool = False
-    use_llm_for_analysis: bool = False
+    use_llm_for_slides: bool = True
+    use_llm_for_analysis: bool = True
+
+class UpdateExtractionRequest(BaseModel):
+    id: int
+    data: dict
+
+class DeleteSlideRequest(BaseModel):
+    id: int
+    slideIndex: int
 
 class ParseRequest(BaseModel):
     session_info: dict  
 
+
+class PVDocument(Base):
+    __tablename__ = "pv_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    filename = Column(Text)
+
+    nb_slides = Column(Integer)
+    nb_slides_vides = Column(Integer)
+    nb_graphiques_natifs = Column(Integer)
+    nb_images_ocr = Column(Integer)
+
+    data = Column(Text)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+    tableaux = Column(Text)
