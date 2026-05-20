@@ -9,6 +9,7 @@ from db_connection import Base
 class Note(BaseModel):
     participant: str
     content: str
+    ordre_du_jour: str | None = None  # ← add this
 
 class MergeRequest(BaseModel):
     pv_draft: dict

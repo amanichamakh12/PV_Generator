@@ -49,6 +49,8 @@ export interface PVDocument {
     arabic?: string;
     english?: string;
   };
+  draftJson?: any;
+  finalJson?: any;
 }
 
 export type WorkflowStep = 
@@ -68,4 +70,9 @@ export interface WorkflowState {
   agendaItems: AgendaItem[];
   isProcessing: boolean;
   error: string | null;
+  draftContent: string; // affichage UI
+  draftJson: any;       // données backend
+  finalContent: string;
+  finalJson: any;
+
 }

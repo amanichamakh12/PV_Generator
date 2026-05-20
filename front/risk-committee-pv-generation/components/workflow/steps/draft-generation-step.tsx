@@ -19,9 +19,11 @@ import {
   Calendar,
   Users,
   Plus,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
 // Mock function to generate draft PV
 const mockGenerateDraftPV = async (
@@ -91,6 +93,7 @@ const { document, slides, agendaItems, updateDocument, setCurrentStep } = useWor
   const [isEditing, setIsEditing] = useState(false);
   const [participants, setParticipants] = useState<string[]>(document?.participants || []);
   const [newParticipant, setNewParticipant] = useState('');
+  const [newParticipantRole, setNewParticipantRole] = useState('');
 
 const handleGenerateDraft = async () => {
   if (!document) return;
@@ -179,6 +182,100 @@ Après avoir constaté la présence requise des membres, le Président a ouvert 
     setIsGenerating(false);
   }
 };
+
+function getRunsFromLine(line: string): TextRun[] {
+  return line.split(/(\*\*.*?\*\*)/g).filter(Boolean).map((part) => {
+    const match = /^\*\*(.*)\*\*$/.exec(part);
+    return new TextRun({
+      text: match ? match[1] : part,
+      bold: Boolean(match),
+    });
+  });
+}
+
+function createDocxDocumentFromDraft(content: string) {
+  const paragraphs: Paragraph[] = [];
+  const lines = content.split(/\r?\n/);
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      paragraphs.push(new Paragraph(''));
+      return;
+    }
+
+    if (line.startsWith('# ')) {
+      paragraphs.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_1,
+          children: getRunsFromLine(line.replace('# ', '')),
+        })
+      );
+      return;
+    }
+
+    if (line.startsWith('## ')) {
+      paragraphs.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: getRunsFromLine(line.replace('## ', '')),
+        })
+      );
+      return;
+    }
+
+    if (line.startsWith('### ')) {
+      paragraphs.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_3,
+          children: getRunsFromLine(line.replace('### ', '')),
+        })
+      );
+      return;
+    }
+
+    if (line.startsWith('- ')) {
+      paragraphs.push(
+        new Paragraph({
+          bullet: { level: 0 },
+          children: getRunsFromLine(line.replace('- ', '')),
+        })
+      );
+      return;
+    }
+
+    paragraphs.push(
+      new Paragraph({
+        children: getRunsFromLine(line),
+      })
+    );
+  });
+
+  return new DocxDocument({
+    sections: [
+      {
+        children: paragraphs,
+      },
+    ],
+  });
+}
+
+const handleDownloadDraftDocx = async () => {
+  if (!document?.draftContent) return;
+
+  const doc = createDocxDocumentFromDraft(document.draftContent);
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const a = window.document.createElement('a');
+  a.href = url;
+  a.download = `PV_Comite_Risques_${new Date().toISOString().split('T')[0]}.docx`;
+  window.document.body.appendChild(a);
+  a.click();
+  window.document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
 // Convertit le JSON structuré du PV en texte lisible
 function formatPVtoText(pv: any): string {
   const lines: string[] = [];
@@ -257,11 +354,13 @@ function formatPVtoText(pv: any): string {
   };
 
   const handleAddParticipant = () => {
-    if (newParticipant.trim()) {
-      const updatedParticipants = [...participants, newParticipant.trim()];
+    if (newParticipant.trim() && newParticipantRole.trim()) {
+      const participantLabel = `${newParticipant.trim()} — ${newParticipantRole.trim()}`;
+      const updatedParticipants = [...participants, participantLabel];
       setParticipants(updatedParticipants);
       updateDocument({ participants: updatedParticipants });
       setNewParticipant('');
+      setNewParticipantRole('');
     }
   };
 
@@ -334,15 +433,28 @@ function formatPVtoText(pv: any): string {
                 <Users className="w-4 h-4 text-muted-foreground" />
                 Participants
               </label>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <Input
                   placeholder="Nom du participant"
                   value={newParticipant}
                   onChange={(e) => setNewParticipant(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddParticipant()}
-                  className="flex-1"
+                  className="w-full"
                 />
-                <Button size="icon" onClick={handleAddParticipant}>
+                <Input
+                  placeholder="Fonction du participant"
+                  value={newParticipantRole}
+                  onChange={(e) => setNewParticipantRole(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddParticipant()}
+                  className="w-full"
+                />
+              </div>
+              <div className="flex gap-2 mt-2">
+                <Button
+                  size="icon"
+                  onClick={handleAddParticipant}
+                  disabled={!newParticipant.trim() || !newParticipantRole.trim()}
+                >
                   <Plus className="w-4 h-4" />
                 </Button>
               </div>
@@ -400,6 +512,15 @@ function formatPVtoText(pv: any): string {
                       onClick={() => setIsEditing(!isEditing)}
                     >
                       {isEditing ? 'Aperçu' : 'Modifier'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadDraftDocx}
+                      className="gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Télécharger
                     </Button>
                     <Button
                       variant="outline"

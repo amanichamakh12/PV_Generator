@@ -22,7 +22,6 @@ AGENDA_TITLE_HINTS = (
 )
 
 AGENDA_ITEMS_TO_IGNORE = (
-    "confirmation de l'ordre du jour",
     "confirmation de l’ordre du jour",
 )
 
@@ -54,7 +53,8 @@ def _extract_agenda_items(slide_dict: dict) -> list[str]:
         low = _normalize_text(text)
         if low in AGENDA_TITLE_HINTS:
             continue
-        if any(ignored in low for ignored in AGENDA_ITEMS_TO_IGNORE):
+        # Compare against les éléments ignorés après normalisation
+        if any(_normalize_text(ignored) in low for ignored in AGENDA_ITEMS_TO_IGNORE):
             continue
         # Ignore numéros de points isolés (ex: "1", "02")
         if re.fullmatch(r"\d{1,3}", low):
@@ -67,6 +67,25 @@ def _extract_agenda_items(slide_dict: dict) -> list[str]:
             continue
         cleaned.append(text)
     return cleaned
+
+
+def _is_transition_slide(slide_dict: dict) -> bool:
+    """
+    Détecte une slide de transition qui ne contient que le titre d'ordre du jour.
+    Retourne True si la slide a un titre correspondant à un hint d'agenda
+    et ne contient pas d'autres contenus (texte, graphiques, images, tableaux, notes).
+    """
+    title = _normalize_text(slide_dict.get("titre"))
+    if not title:
+        return False
+
+    # Si la slide contient des éléments riches, ce n'est pas une transition
+    if slide_dict.get("contenu") or slide_dict.get("graphiques") or slide_dict.get("images") or slide_dict.get("tableaux") or slide_dict.get("notes"):
+        # Vérifie qu'il n'y a que des valeurs vides dans contenu
+        if any((c or "").strip() for c in (slide_dict.get("contenu") or [])):
+            return False
+
+    return any(hint in title for hint in AGENDA_TITLE_HINTS)
 
 
 def _assign_agenda_to_slides(slides_data: list[dict]) -> list[dict]:
@@ -84,8 +103,11 @@ def _assign_agenda_to_slides(slides_data: list[dict]) -> list[dict]:
     if not agenda_items or agenda_slide_idx is None:
         return slides_data
 
-    # 2. Slides après agenda
-    content_slides = slides_data[agenda_slide_idx + 1:]
+    # 2. Slides après agenda — sauter les slides de transition (titre seul)
+    start_idx = agenda_slide_idx + 1
+    while start_idx < len(slides_data) and _is_transition_slide(slides_data[start_idx]):
+        start_idx += 1
+    content_slides = slides_data[start_idx:]
 
     n = len(content_slides)
     k = len(agenda_items)
@@ -109,9 +131,7 @@ def _assign_agenda_to_slides(slides_data: list[dict]) -> list[dict]:
     slides_data[agenda_slide_idx]["ordre du jour"] = None
 
     return slides_data
-# ══════════════════════════════════════════════════════════════════════
-# EXTRACTION GRAPHIQUES NATIFS (zéro hallucination)
-# ══════════════════════════════════════════════════════════════════════
+
 
 def _extract_charts(slide) -> list[dict]:
     """
