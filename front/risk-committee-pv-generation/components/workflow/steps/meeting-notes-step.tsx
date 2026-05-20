@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   MessageSquare, 
@@ -23,10 +23,11 @@ import {
 import { cn } from '@/lib/utils';
 
 export function MeetingNotesStep() {
-  const { agendaItems, addMeetingNote, updateMeetingNote, deleteMeetingNote, setCurrentStep } = useWorkflow();
+  const { agendaItems, addMeetingNote, updateMeetingNote, deleteMeetingNote, setCurrentStep, document } = useWorkflow();
   const [selectedAgendaId, setSelectedAgendaId] = useState<string | null>(agendaItems[0]?.id || null);
   const [newSpeaker, setNewSpeaker] = useState('');
   const [newContent, setNewContent] = useState('');
+  const participants = document?.participants || [];
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
 
@@ -158,12 +159,31 @@ export function MeetingNotesStep() {
                     Nouvelle Note
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <Input
-                      placeholder="Nom de l'intervenant"
-                      value={newSpeaker}
-                      onChange={(e) => setNewSpeaker(e.target.value)}
-                      className="md:col-span-1"
-                    />
+                    {participants.length > 0 ? (
+                      <Select
+                        value={newSpeaker}
+                        onValueChange={(value) => setNewSpeaker(value)}
+                        className="md:col-span-1"
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Choisir un participant" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {participants.map((participant) => (
+                            <SelectItem key={participant} value={participant}>
+                              {participant}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder="Nom de l'intervenant"
+                        value={newSpeaker}
+                        onChange={(e) => setNewSpeaker(e.target.value)}
+                        className="md:col-span-1"
+                      />
+                    )}
                     <Textarea
                       placeholder="Ce qui a été dit..."
                       value={newContent}

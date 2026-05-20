@@ -134,7 +134,22 @@ export function AgendaAnalysisStep() {
   const handleQuickFill = () => {
     const staticAnalyses: Record<number, string> = {
       1: `Le Comité a procédé à l'examen de l'ordre du jour et a validé les points à discuter.\n\n**Constats :**\n• L'ordre du jour a été approuvé à l'unanimité\n• Les membres présents ont confirmé leur disponibilité pour la durée de la séance`,
-      2: `Le Comité a examiné l'évolution des engagements et les indicateurs de crédit pour la période T1 2025. Le portefeuille global affiche une progression de +3.6%, atteignant 4 512 MMAD.\n\n**Constats :**\n• Progression globale des engagements de +3.6% sur le trimestre\n• Les Grandes Entreprises demeurent le segment dominant avec 2 078 MMAD\n• Segment Immobilier en hausse de +3.7%\n\n**Risques identifiés :**\n• Concentration croissante sur le segment Grandes Entreprises\n• Accélération du rythme de croissance à surveiller\n\n**Actions suggérées :**\n• Suivi mensuel de la concentration par segment\n• Révision des limites si la tendance se poursuit`,
+      2: `L'analyse du portefeuille de crédit au mois de mai 2025 révèle une augmentation du montant total des engagements de 2,3 % par rapport à l'époque précédente, avec un nombre de contreparties qui a augmenté de 48 unités. Le taux de défaut a diminué de 0,12 points pour atteindre 4,18 %, tandis que le taux de couverture s'est amélioré de 1,8 point à 72,3 %. La répartition du portefeuille selon les stades IFRS 9 montre une forte concentration dans le segment performant (Stage 1) avec 77,4 % des actifs totaux et une ECL de 12,3 Mrd DZD. Le segment sous surveillance (Stage 2) représente 14,8 % du portefeuille avec une ECL de 18,7 MrD ZD, tandis que le segment non performant (Stage 3) s'élève à 7,8 % des actifs totaux et une ECL de 41,2 MrD ZD. La répartition sectorielle du portefeuille montre un leadership de l'Industrie & BTP avec 48,2 Mrd DZD (26%), suivi par le Commerce & Distribution à 36,7 Mrd DZD (20%). Les notations internes des secteurs varient entre BB+ et BBB-, avec l'Industrie & BTP étant la plus forte. Ces informations suggèrent une situation globale stable mais nécessitent une vigilance accrue sur les segments non performants.
+
+**Constats :**
+• Le montant total des engagements est de 184,6 Mrd DZD
+• Le taux de défaut est de 4,18 %
+• Le taux de couverture s'est amélioré de 1,8 point
+• Industrie & BTP domine avec 26% des actifs
+• Commerce & Distribution représente 20%
+• Agriculture totalise 16%
+• Services & Telecom atteignent 13%
+• Immobilier affiche 12%
+
+**Risques identifiés :**
+• La concentration dans le segment non performant (Stage 3) avec une ECL élevée de 41,2 MrD ZD
+• Les notations internes des secteurs varient entre BB+ et BBB-
+• Le leadership du secteur Industrie & BTP`,
       3: `Le Comité a examiné le suivi des incidents et pertes opérationnelles pour T1 2025. 28 incidents ont été enregistrés pour des pertes totales de 476K MAD, avec un taux de résolution de 68%.\n\n**Constats :**\n• 28 incidents au total, en baisse vs 31 en T4 2024\n• Pertes totales : 476K MAD (↓12%)\n• Taux de résolution : 68% — objectif cible 75%\n• Erreurs de traitement : catégorie dominante (12 cas)\n\n**Risques identifiés :**\n• Fraude interne en hausse (statut ouvert)\n• Taux de résolution encore en dessous de la cible\n\n**Actions suggérées :**\n• Renforcer les mesures anti-fraude interne\n• Plan d'action pour atteindre 75% de résolution`,
       4: `Le Comité a passé en revue la répartition sectorielle du portefeuille et le respect des limites de concentration.\n\n**Constats :**\n• Commerce & Distribution : utilisation à 90% de la limite — ALERTE ROUGE\n• BTP & Immobilier : utilisation à 87.5% — ALERTE ORANGE\n• Exposition totale : 4 512 MMAD\n\n**Risques identifiés :**\n• Dépassement imminent sur Commerce & Distribution\n• Deux secteurs simultanément en zone d'alerte\n\n**Actions suggérées :**\n• Révision urgente de la limite Commerce & Distribution\n• Stress test sectoriel BTP & Immobilier`,
     };

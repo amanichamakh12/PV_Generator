@@ -152,6 +152,40 @@ async def analyze_agenda_full(req: AgendaFullRequest):
     }
 
 
+@app.post("/api/merge-notes")
+async def merge_notes(req: MergeRequest):
+
+    pv_draft = req.pv_draft
+
+    # ── Détection : pv_draft est un wrapper markdown ? ──
+    if "content" in pv_draft and "points" not in pv_draft:
+        print("⚠️ pv_draft reçu en markdown string — merge impossible")
+        print("   Clés reçues :", list(pv_draft.keys()))
+        return {
+            "success": False,
+            "error": "pv_draft doit contenir 'points', pas 'content'. Le frontend envoie du markdown au lieu du JSON structuré.",
+            "pv": pv_draft  # retourne tel quel sans merger
+        }
+
+    notes = [
+        {
+            "participant": n.participant,
+            "content": n.content,
+            "ordre_du_jour": n.ordre_du_jour
+        }
+        for n in req.notes
+    ]
+
+    merged = merge_notes_with_pv(OLLAMA_MODEL, pv_draft, notes)
+
+    return {"success": True, "pv": merged}
+
+
+
+
+
+
+
 @app.post("/api/generate-pv-from-pptx")
 async def generate_pv_from_pptx(
     file: UploadFile = File(...),

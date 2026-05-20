@@ -739,45 +739,151 @@ def _ensure_points_match_odj(pv: dict, odj: list, slides: list) -> dict:
 
 
 def merge_notes_with_pv(client, pv_draft: dict, notes: list) -> dict:
-    """Fusionner les notes des participants avec le PV et reformuler via LLM."""
+    """
+    Fusion incrémentale des notes réunion dans le PV draft.
+
+    Objectif :
+    - conserver le draft existant ;
+    - enrichir chaque point ODJ ;
+    - reformuler les remarques des participants ;
+    - ne jamais réécrire totalement le PV.
+    """
 
     if not notes:
         return pv_draft
 
-    notes_text = "\n".join(
-        f"- {n['participant']}: {n['content']}"
-        for n in notes
-        if n.get("participant") and n.get("content")
-    )
+    points = pv_draft.get("points", [])
 
-    if not notes_text.strip():
+    if not points:
         return pv_draft
 
-    prompt = f"""Fusionne ces notes de réunion dans le PV draft et reformule en langage administratif.
+    # ─────────────────────────────────────────────
+    # Regroupement des notes par ordre du jour
+    # ─────────────────────────────────────────────
+    notes_by_odj = {}
 
-PV DRAFT:
-{json.dumps(pv_draft, ensure_ascii=False, indent=2)}
+    for note in notes:
 
-NOTES DES PARTICIPANTS:
+        odj = (
+            note.get("ordre_du_jour")
+            or note.get("agenda")
+            or note.get("point")
+            or ""
+        ).strip()
+
+        participant = note.get("participant", "").strip()
+        content = note.get("content", "").strip()
+
+        if not odj or not content:
+            continue
+
+        if odj not in notes_by_odj:
+            notes_by_odj[odj] = []
+
+        notes_by_odj[odj].append({
+            "participant": participant,
+            "content": content
+        })
+
+    # ─────────────────────────────────────────────
+    # Fusion point par point
+    # ─────────────────────────────────────────────
+    for point in points:
+
+        titre = (point.get("titre") or "").strip()
+
+        if not titre:
+            continue
+
+        linked_notes = notes_by_odj.get(titre)
+
+        if not linked_notes:
+            continue
+
+        notes_text = "\n".join(
+            f"- {n['participant']} : {n['content']}"
+            for n in linked_notes
+        )
+
+        existing_discussion = point.get("discussion", "")
+        existing_expose = point.get("expose", "")
+        existing_conclusion = point.get("conclusion", "")
+
+        prompt = f"""
+Tu es un secrétaire de comité bancaire.
+
+TÂCHE UNIQUE : Reformuler les notes suivantes en style administratif formel.
+Retourne UNIQUEMENT un JSON avec les remarques reformulées.
+Ne touche pas à la discussion existante.
+Ne réécris rien d'autre.
+
+NOTES À REFORMULER :
 {notes_text}
 
-RÈGLES:
-1. Intègre chaque note dans le point approprié du PV
-2. Reformule en langage administratif formel (3ème personne)
-3. Enrichis "discussion" et "remarques" de chaque point concerné
-4. Ajoute les décisions/actions détectées dans les notes
-5. Préserve TOUTE la structure JSON existante
-6. RÉPONSE = JSON UNIQUEMENT, commence par {{"""
+FORMAT JSON OBLIGATOIRE (rien d'autre) :
+{{
+  "remarques": [
+    "M./Mme [participant] a indiqué que ...",
+    "..."
+  ]
+}}
+"""
 
-    raw = _call_llm(SYSTEM_PV, prompt, max_tokens=4000)
-    parsed = _extract_json(raw)
+        try:
 
-    if parsed:
-        return parsed
+            raw = _call_llm(SYSTEM_PV, prompt, max_tokens=2000)
 
-    print("⚠️ Merge JSON non extrait — retour du draft original")
+            parsed = _extract_json(raw)
+
+            if not parsed:
+                continue
+
+            # ─────────────────────────────────────
+            # Mise à jour incrémentale
+            # ─────────────────────────────────────
+
+            if parsed.get("discussion"):
+                point["discussion"] = parsed["discussion"]
+
+            if parsed.get("conclusion"):
+                point["conclusion"] = parsed["conclusion"]
+
+            existing_remarques = point.get("remarques", [])
+
+            if parsed.get("remarques"):
+                point["remarques"] = (
+                    existing_remarques + parsed["remarques"]
+                )
+
+            # décisions globales
+            if parsed.get("decisions"):
+
+                if "decisions" not in pv_draft:
+                    pv_draft["decisions"] = []
+
+                pv_draft["decisions"].extend(parsed["decisions"])
+
+            # actions globales
+            if parsed.get("actions"):
+
+                if "plan_action" not in pv_draft:
+                    pv_draft["plan_action"] = []
+
+                for idx, action in enumerate(parsed["actions"], start=1):
+
+                    pv_draft["plan_action"].append({
+                        "id": f"A{len(pv_draft['plan_action']) + 1:02d}",
+                        "action": action.get("action", ""),
+                        "responsable": action.get("responsable", ""),
+                        "echeance": action.get("echeance", ""),
+                        "statut": "En cours",
+                        "priorite": "Normale"
+                    })
+
+        except Exception as e:
+            print(f"⚠️ Erreur fusion notes pour point '{titre}': {e}")
+
     return pv_draft
-
 
 def translate_pv(client, pv: dict, target_language: str) -> dict:
     """Traduire le PV dans la langue cible."""

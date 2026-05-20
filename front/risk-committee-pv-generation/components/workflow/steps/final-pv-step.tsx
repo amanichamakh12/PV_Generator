@@ -20,40 +20,146 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Mock function to generate final PV
-const mockGenerateFinalPV = async (
-  draftContent: string,
-  agendaItems: { title: string; notes: { speaker: string; content: string }[] }[]
-): Promise<string> => {
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  let notesSection = '';
-  agendaItems.forEach((item, i) => {
-    notesSection += `\n### ${i + 1}. ${item.title}\n\n`;
-    if (item.notes.length > 0) {
-      notesSection += '**Interventions:**\n\n';
-      item.notes.forEach(note => {
-        notesSection += `**${note.speaker}:** ${note.content}\n\n`;
-      });
-    }
+const generateFinalPV = async (pvDraft: string, agendaItems: any[]) => {
+  console.group("🔵 generateFinalPV");
+
+  console.log("📥 pvDraft (100 premiers chars) :", pvDraft?.slice(0, 100));
+  console.log("📥 agendaItems :", agendaItems);
+
+  // Étape 2 — Construction du payload notes
+  const notes = agendaItems.flatMap(a =>
+    a.notes.map((n: { speaker: any; content: any }) => ({
+      participant: n.speaker,
+      content: n.content,
+      ordre_du_jour: a.title
+    }))
+  );
+  console.log("📋 Notes aplaties :", notes);
+  console.log("📋 Nombre de notes :", notes.length);
+
+  // ✅ Étape 3 — Construction du JSON structuré depuis agendaItems
+  const pvDraftStructure = {
+    points: agendaItems.map(a => ({
+      titre: a.title,
+      expose: a.expose ?? a.summary ?? "",
+      discussion: a.discussion ?? a.content ?? pvDraft
+        .split(/\n### /)
+        .find(section => section.startsWith(a.title))
+        ?.split('\n').slice(1).join('\n')
+        .trim() ?? "",
+      conclusion: a.conclusion ?? "",
+      remarques: a.remarques ?? [],
+    }))
+  };
+
+  console.log("🏗️ PV structuré construit :", JSON.stringify(pvDraftStructure, null, 2));
+  console.log("🏗️ Nombre de points :", pvDraftStructure.points.length);
+  pvDraftStructure.points.forEach(p =>
+    console.log(`   - "${p.titre}" → discussion: ${p.discussion.slice(0, 60)}...`)
+  );
+
+  // Étape 3 — Body final envoyé
+  const body = {
+    pv_draft: pvDraftStructure,  // ✅ JSON structuré au lieu de { content: string }
+    notes,
+  };
+  console.log("📤 Body envoyé au backend :", JSON.stringify(body, null, 2));
+
+  // Étape 4 — Appel fetch
+  console.time("⏱️ Durée appel /api/merge-notes");
+  const response = await fetch('http://localhost:8000/api/merge-notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
+  console.timeEnd("⏱️ Durée appel /api/merge-notes");
 
-  return `${draftContent}
+  console.log("📡 Status HTTP :", response.status, response.statusText);
 
----
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error("❌ Erreur backend brute :", errorBody);
+    try {
+      console.error("❌ Erreur backend parsée :", JSON.parse(errorBody));
+    } catch {
+      console.warn("⚠️ Réponse d'erreur non-JSON");
+    }
+    console.groupEnd();
+    throw new Error(`Erreur génération PV final [${response.status}]: ${errorBody}`);
+  }
 
-## NOTES DE LA RÉUNION
-${notesSection}
+  const data = await response.json();
+console.log("✅ Réponse backend :", data);
+console.log("✅ Type de data.pv :", typeof data.pv);
 
----
+let pvFinal: string;
 
-## VALIDATION
+if (typeof data.pv === "string") {
+  pvFinal = data.pv;
 
-Ce procès-verbal a été établi conformément aux discussions tenues lors du comité.
+} else if (data.pv?.content) {
+  pvFinal = data.pv.content;
 
-**Statut:** ✓ Validé
-**Date de validation:** ${new Date().toLocaleDateString('fr-FR')}
-`;
+} else if (data.pv?.points) {
+  // ✅ Reconversion JSON enrichi → Markdown
+  console.log("🔄 Reconversion JSON mergé → Markdown");
+
+  const intro = pvDraft.split("## COMPTE RENDU DES DISCUSSIONS")[0] ?? "";
+
+  const pointsMarkdown = data.pv.points.map((p: any, idx: number) => {
+    const remarques = (p.remarques ?? [])
+      .map((r: string) => `• ${r}`)
+      .join("\n");
+
+    const decisions = (data.pv.decisions ?? [])
+      .map((d: string) => `• ${d}`)
+      .join("\n");
+
+    const actions = (data.pv.plan_action ?? [])
+      .filter((a: any) => a.action)
+      .map((a: any) => `• [${a.id}] ${a.action} — ${a.responsable} (${a.echeance || "à définir"})`)
+      .join("\n");
+
+    return [
+      `### ${idx + 2}. ${p.titre}`,
+      "",
+      p.discussion || "",
+      "",
+      remarques ? `**Remarques :**\n${remarques}` : "",
+      "",
+      decisions ? `**Décisions :**\n${decisions}` : "",
+      "",
+      actions ? `**Plan d'action :**\n${actions}` : "",
+      "",
+      `**Conclusion :** ${p.conclusion || `Le Comité a pris acte des éléments présentés relatifs à ce point.`}`,
+    ].filter(Boolean).join("\n");
+  }).join("\n\n");
+
+  pvFinal = `${intro}## COMPTE RENDU DES DISCUSSIONS\n\n${pointsMarkdown}\n\n---\nPV généré automatiquement par le système.`;
+
+  console.log("✅ Markdown reconstruit (200 premiers chars) :", pvFinal.slice(0, 200));
+
+} else {
+  console.warn("⚠️ Structure data.pv non reconnue — fallback pvDraft");
+  pvFinal = pvDraft;
+}
+
+// Vérification merge
+console.group("🔍 Vérification merge notes");
+notes.forEach((n: any) => {
+  const motsCles = n.content.split(/\s+/).filter((w: string) => w.length > 5).slice(0, 3);
+  const trouves = motsCles.filter((m: string) => pvFinal.includes(m));
+  const ratio = trouves.length / motsCles.length;
+  if (ratio >= 0.6) {
+    console.log(`✅ Note de ${n.participant} mergée (${trouves.length}/${motsCles.length} mots-clés)`);
+  } else {
+    console.warn(`❌ Note de ${n.participant} NON mergée — mots-clés cherchés : [${motsCles}]`);
+  }
+});
+console.groupEnd();
+
+console.groupEnd();
+return pvFinal;
 };
 
 export function FinalPVStep() {
@@ -62,26 +168,32 @@ export function FinalPVStep() {
   const [isEditing, setIsEditing] = useState(false);
   const [isValidated, setIsValidated] = useState(false);
 
-  const handleGenerateFinal = async () => {
-    if (!document?.draftContent) return;
+const [error, setError] = useState<string | null>(null);
 
-    setIsGenerating(true);
-    
-    try {
-      const finalContent = await mockGenerateFinalPV(
-        document.draftContent,
-        agendaItems.map(a => ({
-          title: a.title,
-          notes: a.notes.map(n => ({ speaker: n.speaker, content: n.content }))
-        }))
-      );
-      updateDocument({ finalContent, status: 'reviewing' });
-    } catch {
-      console.error('Error generating final PV');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+const handleGenerateFinal = async () => {
+  if (!document?.draftContent) {
+    console.error('draftContent manquant');
+    return;
+  }
+
+  setIsGenerating(true);
+  setError(null); // clear previous error
+
+  try {
+    const finalPV = await generateFinalPV(document.draftContent, agendaItems);
+
+    updateDocument({
+      finalContent: JSON.stringify(finalPV, null, 2),
+      finalJson: finalPV,
+      status: 'reviewing'
+    });
+  } catch (err: any) {
+    console.error(err);
+    setError(err.message ?? 'Une erreur est survenue');
+  } finally {
+    setIsGenerating(false);
+  }
+};
 
   const handleRegenerateFinal = async () => {
     setIsValidated(false);
