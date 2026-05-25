@@ -73,15 +73,8 @@ ACTION_TEMPLATE = {
 # ─── Config backend IA ─────────────────────────────────────────────────────────
 
 today = datetime.now().strftime("%d/%m/%Y")
-# Détection automatique : Claude si ANTHROPIC_API_KEY présente, sinon Ollama
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL        = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL      = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
-
-USE_CLAUDE = bool(ANTHROPIC_API_KEY)
-
-print(f"🤖 Backend IA : {'Claude API' if USE_CLAUDE else f'Ollama ({OLLAMA_MODEL})'}")
-
 EXPORT_DIR = Path(__file__).parent.parent / "exports"
 EXPORT_DIR.mkdir(exist_ok=True)
 

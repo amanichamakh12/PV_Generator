@@ -7,7 +7,7 @@ from typing import Optional
 import requests
 import base64
 import re
-from PipelineMin import extract_chart_hybrid
+from PipelineMin import extract_chart_with_ollama
 from ocr import get_ocr_tokens
 # from chart_ocr_extractor import describe_image  # ancien pipeline LLaVA/ocr
 from MeilleurVersionGraph import describe_image_groq
@@ -380,7 +380,7 @@ def parse_pptx(file_path: str) -> dict:
 
     for idx, slide in enumerate(prs.slides):
         charts_natifs = _extract_charts(slide)      
-        images_desc   = _extract_images(slide)      # images (OCR + LLaVA)
+        images_desc   = _extract_images(slide)    
 
         slide_dict = {
             "index":          idx + 1,
@@ -388,7 +388,7 @@ def parse_pptx(file_path: str) -> dict:
             "ordre du jour": None,  
             "contenu":        _extract_content(slide),
             "tableaux":       _extract_tables(slide),
-            "graphiques":     charts_natifs,         # ← NOUVEAU
+            "graphiques":     charts_natifs,         
             "images":         images_desc,
             "notes":          _extract_notes(slide),
             "est_vide":       False,
@@ -444,17 +444,16 @@ def _run_chart_pipeline(image_bytes: bytes) -> dict:
     Retourne toujours un dict, jamais une exception.
     """
     try:
-        description = describe_image_groq(image_bytes)
+        description = extract_chart_with_ollama(image_bytes)
         if isinstance(description, dict):
             return description
         return {
-            "source": "groq",
+            "source": "Qween",
             "description": description,
         }
-        # Ancien pipeline :
-        # tokens = get_ocr_tokens(image_bytes)
-        # result = extract_chart_hybrid(image_bytes, tokens)
-        # return result or {"erreur": "pipeline returned None"}
+        #tokens = get_ocr_tokens(image_bytes)
+        #result = extract_chart_hybrid(image_bytes, tokens)
+        return result or {"erreur": "pipeline returned None"}
     except Exception as e:
         return {"erreur": str(e)}
 
