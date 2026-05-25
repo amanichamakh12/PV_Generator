@@ -1,8 +1,10 @@
+"""PPTX text extraction utilities and plain-text PV generation helpers."""
+
 from pptx import Presentation
 from datetime import datetime
 
 
-def extract_text_from_pptx(file_path):
+def extract_text_from_pptx(file_path: str) -> list[dict]:
     prs = Presentation(file_path)
     slides_content = []
 
@@ -18,7 +20,9 @@ def extract_text_from_pptx(file_path):
         })
 
     return slides_content
-def build_extracted_from_slides(slides_content, session_info: dict):
+
+
+def build_extracted_from_slides(slides_content: list[dict], session_info: dict) -> dict:
     ordre_du_jour = []
     points_discutes = []
 
@@ -55,7 +59,7 @@ def build_extracted_from_slides(slides_content, session_info: dict):
         "slides":    slides_content
     }
 
-def generate_pv(slides_content, session_info: dict):
+def generate_pv(slides_content: list[dict], session_info: dict) -> str:
     titre = session_info.get("titre_reunion", "Procès-verbal de réunion")
     date  = session_info.get("date", datetime.now().strftime("%d/%m/%Y"))
     lieu  = session_info.get("lieu", "")
@@ -92,6 +96,6 @@ def generate_pv(slides_content, session_info: dict):
 
 
 # Inchangé
-def save_pv(pv_text, output_file="pv_reunion.txt"):
+def save_pv(pv_text: str, output_file: str = "pv_reunion.txt") -> None:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(pv_text)

@@ -1,9 +1,21 @@
+"""Minimal chart extraction pipeline (OCR + optional Ollama helper)."""
+
+import base64
 import json
+
+import requests
+
 from ocr import (
-    get_ocr_tokens, split_zones, detect_chart_type,
-    extract_title, extract_bar_values, extract_axis_labels,
-    map_by_position, validate,
-    extract_pie_values, extract_legend_labels
+    detect_chart_type,
+    extract_axis_labels,
+    extract_bar_values,
+    extract_legend_labels,
+    extract_pie_values,
+    extract_title,
+    get_ocr_tokens,
+    map_by_position,
+    split_zones,
+    validate,
 )
 
 def extract_chart(image_bytes: bytes) -> dict:
@@ -59,13 +71,6 @@ if __name__ == "__main__":
     result = extract_chart(img)
     print("\n" + json.dumps(result, indent=2, ensure_ascii=False))
 
-    import base64
-import json
-import requests
-
-import base64
-import json
-import requests
 
 def extract_chart_with_ollama(image_path: str) -> dict:
     with open(image_path, "rb") as f:

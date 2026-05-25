@@ -1,16 +1,17 @@
 from generate_pv_draft import generate_pv_draft_pipeline
 from docx import Document as DocxDocument
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from typing import Any
 
 def build_pv_request_body(
-    extracted: dict[str, any],
+    extracted: dict[str, Any],
     use_llm_for_slides: bool = False,
     use_llm_for_analysis: bool = False,
-) -> dict[str, any]:
+) -> dict[str, Any]:
     """
     Transforme la sortie de parse_pptx en body prêt pour /api/test-draft-pipeline.
     Fait tourner generate_pv_draft_pipeline en interne et mappe les clés

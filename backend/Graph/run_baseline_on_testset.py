@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from baseline_qwen25vl import extract_chart
+from PV_Generator.backend.Graph.baseline_qwen25vl import extract_chart
 
 
 MANIFEST = Path("backend/chart_testset/manifest.jsonl")

@@ -1,3 +1,5 @@
+"""Chart extraction baseline using Qwen2.5VL via Ollama."""
+
 import base64
 import json
 import sys

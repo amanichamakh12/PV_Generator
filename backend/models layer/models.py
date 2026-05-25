@@ -1,7 +1,6 @@
-# ── Models ────────────────────────────────────────────────────────────────────
-from langgraph import func
+"""Pydantic request models and SQLAlchemy ORM models for PV documents."""
+
 from pydantic import BaseModel
-from sqlalchemy import Column
 from sqlalchemy import Column, Integer, DateTime, Text
 from sqlalchemy.sql import func
 from db_connection import Base

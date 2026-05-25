@@ -3,17 +3,16 @@ Génération, fusion et traduction du PV.
 Compatible Ollama (modèles locaux) ET API Claude Anthropic.
 """
 import json
-import re
 import os
-import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import re
+
+import requests
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from datetime import datetime
-import json
 from datetime import date
 
 today = date.today().strftime("%d/%m/%Y")
