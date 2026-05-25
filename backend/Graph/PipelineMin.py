@@ -3,7 +3,10 @@
 import base64
 import json
 import os
+<<<<<<< HEAD
 from urllib.parse import urljoin
+=======
+>>>>>>> 6069a5aa2c36e900a6bf0e5b141825480666f695
 
 import requests
 
@@ -109,6 +112,7 @@ def extract_chart_with_ollama(image_input: str | bytes) -> dict:
         "options": {"temperature": 0}
     }
 
+<<<<<<< HEAD
     try:
         response = requests.post(
             _ollama_endpoint("/api/chat"),
@@ -137,6 +141,16 @@ def extract_chart_with_ollama(image_input: str | bytes) -> dict:
             "Demarrez Ollama ou configurez OLLAMA_URL."
         )
         return fallback
+=======
+    ollama_chat_url = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/") + "/api/chat"
+
+    response = requests.post(
+        ollama_chat_url,
+        json=payload,
+        timeout=120
+    )
+    response.raise_for_status()
+>>>>>>> 6069a5aa2c36e900a6bf0e5b141825480666f695
 
     data = response.json()
     content = data["message"]["content"]
