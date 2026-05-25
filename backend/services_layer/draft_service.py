@@ -1,13 +1,13 @@
 """Draft generation and agenda analysis service functions."""
 
-from docX import build_pv_docx, build_pv_request_body
-from generate_pv_draft import (
+from backend.docX import build_pv_docx, build_pv_request_body
+from backend.generate_pv_draft import (
     analyze_agenda_group,
     generate_pv_draft_pipeline,
     generate_slide_paragraph,
 )
-from pptx_parser_chartLlama import parse_pptx
-from Pv_Generator import OLLAMA_MODEL, generate_pv_draft
+from backend.pptx_parser_chartLlama import parse_pptx
+from backend.Pv_Generator import OLLAMA_MODEL, generate_pv_draft
 
 
 def generate_slide_paragraph_service(slide: dict) -> dict:

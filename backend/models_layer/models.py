@@ -3,7 +3,7 @@
 from pydantic import BaseModel
 from sqlalchemy import Column, Integer, DateTime, Text
 from sqlalchemy.sql import func
-from db_connection import Base
+from backend.db_connection import Base
 
 class Note(BaseModel):
     participant: str

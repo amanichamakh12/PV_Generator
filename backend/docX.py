@@ -1,4 +1,4 @@
-from generate_pv_draft import generate_pv_draft_pipeline
+from backend.generate_pv_draft import generate_pv_draft_pipeline
 from docx import Document as DocxDocument
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH

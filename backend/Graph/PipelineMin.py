@@ -2,10 +2,12 @@
 
 import base64
 import json
+import os
+from urllib.parse import urljoin
 
 import requests
 
-from ocr import (
+from backend.ocr import (
     detect_chart_type,
     extract_axis_labels,
     extract_bar_values,
@@ -17,6 +19,14 @@ from ocr import (
     split_zones,
     validate,
 )
+
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.environ.get("OLLAMA_VISION_MODEL", os.environ.get("OLLAMA_MODEL", "qwen2.5vl:3b"))
+
+
+def _ollama_endpoint(path: str) -> str:
+    return urljoin(f"{OLLAMA_URL}/", path.lstrip("/"))
+
 
 def extract_chart(image_bytes: bytes) -> dict:
     tokens = get_ocr_tokens(image_bytes)
@@ -72,16 +82,25 @@ if __name__ == "__main__":
     print("\n" + json.dumps(result, indent=2, ensure_ascii=False))
 
 
-def extract_chart_with_ollama(image_path: str) -> dict:
-    with open(image_path, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+def extract_chart_with_ollama(image_input: str | bytes) -> dict:
+    """
+    Accepts either a file path (str) or raw image bytes.
+    """
+    if isinstance(image_input, bytes):
+        image_b64 = base64.b64encode(image_input).decode("utf-8")
+    else:
+        with open(image_input, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
     payload = {
-        "model": "qwen2.5vl:7b",
+        "model": OLLAMA_MODEL,
         "messages": [
             {
                 "role": "user",
-                "content": "Analyse ce graphique et retourne uniquement un JSON valide avec chart_type, title, data, confidence.",
+                "content": (
+                    "Analyse ce graphique et retourne uniquement un JSON valide avec "
+                    "chart_type, title, data, confidence."
+                ),
                 "images": [image_b64],
             }
         ],
@@ -90,12 +109,39 @@ def extract_chart_with_ollama(image_path: str) -> dict:
         "options": {"temperature": 0}
     }
 
-    response = requests.post(
-        "http://localhost:11434/api/chat",
-        json=payload,
-        timeout=120
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            _ollama_endpoint("/api/chat"),
+            json=payload,
+            timeout=120
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        try:
+            if isinstance(image_input, bytes):
+                fallback = extract_chart(image_input)
+            else:
+                with open(image_input, "rb") as f:
+                    fallback = extract_chart(f.read())
+        except Exception:
+            fallback = {
+                "chart_type": "unknown",
+                "title": "",
+                "data": [],
+                "confidence": 0.0,
+            }
+        fallback["source"] = "ocr_fallback"
+        fallback["ollama_status"] = "offline"
+        fallback["message"] = (
+            f"Ollama indisponible sur {_ollama_endpoint('/api/chat')}. "
+            "Demarrez Ollama ou configurez OLLAMA_URL."
+        )
+        return fallback
 
-    content = response.json()["message"]["content"]
-    return json.loads(content)
+    data = response.json()
+    content = data["message"]["content"]
+
+    result = json.loads(content)
+    if isinstance(result, dict):
+        result.setdefault("source", "ollama")
+    return result

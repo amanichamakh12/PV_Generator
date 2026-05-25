@@ -1,7 +1,11 @@
 """Translation service functions."""
 
-from Pv_Generator import OLLAMA_MODEL, translate_pv
-from services.translation_ifsb import translate_pv_ar_ifrb
+
+
+
+from backend.Pv_Generator import translate_pv
+from backend.generate_pv_draft import OLLAMA_MODEL
+from backend.services_layer.translation_ifsb import translate_pv_ar_ifrb
 
 
 def translate_service(pv: dict, target_language: str) -> dict:

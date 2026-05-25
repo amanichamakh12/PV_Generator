@@ -4,7 +4,8 @@ import os
 
 from fastapi import HTTPException
 
-from pptx_parser_chartLlama import parse_pptx
+from backend.pptx_parser_chartLlama import parse_pptx
+
 
 MAX_SIZE_MB = 20
 SUPPORTED_PPT_MIME_TYPES = (

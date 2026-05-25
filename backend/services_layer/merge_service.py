@@ -1,6 +1,9 @@
 """Merge-related service functions."""
 
-from Pv_Generator import OLLAMA_MODEL, merge_notes_with_pv
+
+
+from backend.Pv_Generator import merge_notes_with_pv
+from backend.generate_pv_draft import OLLAMA_MODEL
 
 
 def merge_notes_with_guard_service(pv_draft: dict, notes: list) -> dict:
