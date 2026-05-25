@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 
 import requests
 
@@ -90,8 +91,10 @@ def extract_chart_with_ollama(image_path: str) -> dict:
         "options": {"temperature": 0}
     }
 
+    ollama_chat_url = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/") + "/api/chat"
+
     response = requests.post(
-        "http://localhost:11434/api/chat",
+        ollama_chat_url,
         json=payload,
         timeout=120
     )
