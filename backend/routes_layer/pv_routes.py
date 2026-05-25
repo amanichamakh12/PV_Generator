@@ -5,7 +5,7 @@ import tempfile
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from PV_Generator.backend.models.models import (
+from backend.models_layer.models import (
     AgendaAnalysisRequest,
     AgendaFullRequest,
     DeleteSlideRequest,
@@ -17,12 +17,12 @@ from PV_Generator.backend.models.models import (
     TranslateRequest,
     UpdateExtractionRequest,
 )
-from repository_layer.pv_repository import (
+from backend.repository_layer.pv_repository import (
     create_pv_document,
     delete_slide_from_document,
     update_extraction_data,
 )
-from services_layer.pv_service import (
+from backend.services_layer.pv_service import (
     analyze_agenda_full_service,
     analyze_agenda_service,
     build_health_status_service,

@@ -2,8 +2,8 @@
 
 import json
 
-from db_connection import SessionLocal
-from PV_Generator.backend.models.models import PVDocument
+from backend.db_connection import SessionLocal
+from backend.models_layer.models import PVDocument
 
 
 def create_pv_document(filename: str, result: dict) -> int:
@@ -16,7 +16,7 @@ def create_pv_document(filename: str, result: dict) -> int:
             nb_slides_vides=result.get("nb_slides_vides", 0),
             nb_graphiques_natifs=result.get("nb_graphiques_natifs", 0),
             nb_images_ocr=result.get("nb_images_ocr", 0),
-            tableaux=result.get("tableaux", []),
+            tableaux=json.dumps(result.get("tableaux", []), ensure_ascii=False),
             data=json.dumps(result["slides"], ensure_ascii=False),
         )
 

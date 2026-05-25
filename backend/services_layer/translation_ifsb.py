@@ -5,7 +5,8 @@ import json
 import re
 from typing import Any
 
-from Pv_Generator import _call_llm, _extract_json, translate_pv
+from backend.Pv_Generator import _call_llm, _extract_json, translate_pv
+
 
 
 IFRB_FR_AR_LEXICON: dict[str, str] = {

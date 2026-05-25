@@ -104,47 +104,265 @@ function ChartCard({ chart, index }: { chart: any; index: number }) {
   );
 }
 
-function ImageCard({ image, index }: { image: any; index: number }) {
-  // Try to parse JSON description from groq
-  let parsed: any = null;
-  try {
-    const raw = (image.description || '').replace(/```json|```/g, '').trim();
-    parsed = JSON.parse(raw);
-  } catch {}
+function parseImageDescription(description: unknown) {
+  if (!description) return null;
+  if (typeof description === 'object') return description;
+  if (typeof description !== 'string') return null;
 
+  const raw = description
+    .replace(/```(?:json)?|```/g, '')
+    .trim();
+
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeImagePayload(parsed: any, index: number) {
+  if (!parsed) return null;
+
+  if (parsed.series && parsed.categories) {
+    return {
+      ...parsed,
+      titre: parsed.titre || parsed.title || `Graphique image ${index + 1}`,
+      type: parsed.type || parsed.chart_type || 'Inconnu',
+    };
+  }
+
+  if (!Array.isArray(parsed.data)) return parsed;
+
+  const points: { label: string; value: number }[] = parsed.data
+    .filter((item: any) => item && typeof item === 'object')
+    .map((item: any) => {
+      if ('x' in item && 'y' in item) {
+        return { label: String(item.x ?? ''), value: Number(item.y) };
+      }
+
+      if ('label' in item || 'value' in item) {
+        return { label: String(item.label ?? ''), value: Number(item.value) };
+      }
+
+      const [label, value] = Object.entries(item)[0] || [];
+      return { label: String(label ?? ''), value: Number(value) };
+    })
+    .filter((point: { label: string; value: number }) => point.label && Number.isFinite(point.value));
+
+  if (points.length === 0) return parsed;
+
+  return {
+    titre: parsed.titre || parsed.title || `Graphique image ${index + 1}`,
+    type: parsed.type || parsed.chart_type || 'Inconnu',
+    categories: points.map(point => point.label),
+    series: [
+      {
+        nom: '',
+        valeurs: points.map(point => point.value),
+      },
+    ],
+    observations: parsed.observations || [],
+    confidence: parsed.confidence,
+    source: parsed.source,
+  };
+}
+
+function imagePayloadFromNormalized(image: any, normalized: any) {
+  const categories: string[] = normalized.categories || [];
+  const values: number[] = normalized.series?.[0]?.valeurs || [];
+  const payload = {
+    ...image,
+    title: normalized.titre,
+    chart_type: normalized.type,
+    data: categories.map((label, index) => ({
+      [label]: Number(values[index]) || 0,
+    })),
+    confidence: normalized.confidence,
+    source: normalized.source,
+    observations: normalized.observations || [],
+  };
+
+  return {
+    ...payload,
+    description: JSON.stringify(payload),
+  };
+}
+
+function ImageCard({
+  image,
+  index,
+  editable = false,
+  onImageChange,
+}: {
+  image: any;
+  index: number;
+  editable?: boolean;
+  onImageChange?: (image: any) => void;
+}) {
+  let normalized: any = null;
+  const parsed: any = normalizeImagePayload(parseImageDescription(image?.description) || image, index);
+
+  const updateNormalized = (next: any) => {
+    onImageChange?.(imagePayloadFromNormalized(image, next));
+  };
+
+  // ─── Normalisation ─────────────────────────────
   if (parsed) {
+    // Déjà normalisé
+    if (parsed.series && parsed.categories) {
+      normalized = parsed;
+    }
+
+    // Format { data: [...] }
+    else if (parsed.data && Array.isArray(parsed.data)) {
+      const items = parsed.data.filter((d: any) => d !== null);
+
+      const isXY =
+        items.length > 0 &&
+        'x' in items[0] &&
+        'y' in items[0];
+
+      const categories = isXY
+        ? items.map((d: any) => String(d.x))
+        : items
+            .filter((d: any) => d.value !== null)
+            .map((d: any) => String(d.label));
+
+      const valeurs = isXY
+        ? items.map((d: any) => Number(d.y))
+        : items
+            .filter((d: any) => d.value !== null)
+            .map((d: any) => Number(d.value));
+
+      normalized = {
+        titre: parsed.title || `Graphique image ${index + 1}`,
+        type: parsed.chart_type || 'Inconnu',
+        categories,
+        series: [
+          {
+            nom: '',
+            valeurs,
+          },
+        ],
+        observations: parsed.observations || [],
+        confidence: parsed.confidence,
+      };
+    }
+  }
+
+  // ─── Affichage graphique ───────────────────────
+  if (normalized) {
     return (
       <div className="border rounded-xl overflow-hidden bg-card">
         <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
           <BarChart2 className="w-4 h-4" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold">{parsed.titre || `Graphique image ${index + 1}`}</p>
-            <p className="text-xs text-muted-foreground capitalize">{parsed.type || 'Inconnu'} · via IA</p>
+
+          <div className="flex-1 min-w-0">
+            {editable && (
+              <div className="grid gap-2 sm:grid-cols-[1fr_160px]">
+                <input
+                  value={normalized.titre || ''}
+                  onChange={e => updateNormalized({ ...normalized, titre: e.target.value })}
+                  className="h-8 w-full rounded-md border bg-background px-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary/25"
+                  aria-label="Titre du graphique image"
+                />
+                <input
+                  value={normalized.type || ''}
+                  onChange={e => updateNormalized({ ...normalized, type: e.target.value })}
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/25"
+                  aria-label="Type du graphique image"
+                />
+              </div>
+            )}
+            <p className={cn('text-sm font-semibold truncate', editable && 'hidden')}>
+              {normalized.titre}
+            </p>
+
+            <p className={cn('text-xs text-muted-foreground capitalize', editable && 'hidden')}>
+              {normalized.type} · via IA
+            </p>
           </div>
-          <Badge variant="outline" className="text-xs">IA (image)</Badge>
+
+          <Badge variant="outline" className="text-xs">
+            IA (image)
+          </Badge>
         </div>
+
         <div className="p-4 space-y-3">
-          {(parsed.series || []).map((serie: any, si: number) => (
+          {(normalized.series || []).map((serie: any, si: number) => (
             <div key={si} className="space-y-1">
               {(serie.valeurs || []).map((val: number, vi: number) => {
-                const label = (parsed.categories || [])[vi] || `Item ${vi + 1}`;
+                const label =
+                  (normalized.categories || [])[vi] ||
+                  `Item ${vi + 1}`;
+
                 const max = Math.max(...(serie.valeurs || [1]));
-                const pct = max > 0 ? Math.round((val / max) * 100) : 0;
+
+                const pct =
+                  max > 0
+                    ? Math.round((val / max) * 100)
+                    : 0;
+
                 return (
-                  <div key={vi} className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">{label}</span>
+                  <div
+                    key={vi}
+                    className="flex items-center gap-3"
+                  >
+                    {editable ? (
+                      <input
+                        value={label}
+                        onChange={e => {
+                          const categories = [...(normalized.categories || [])];
+                          categories[vi] = e.target.value;
+                          updateNormalized({ ...normalized, categories });
+                        }}
+                        className="h-8 w-32 shrink-0 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/25"
+                        aria-label={`Libelle ${vi + 1}`}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">
+                        {label}
+                      </span>
+                    )}
+
                     <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />
+                      <div
+                        className="h-full bg-primary/70 rounded-full"
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
-                    <span className="text-xs font-medium w-14 text-right shrink-0">{val}</span>
+
+                    {editable ? (
+                      <input
+                        value={val}
+                        onChange={e => {
+                          const series = [...(normalized.series || [])];
+                          const currentSerie = series[si] || { nom: '', valeurs: [] };
+                          const valeurs = [...(currentSerie.valeurs || [])];
+                          valeurs[vi] = Number(e.target.value);
+                          series[si] = { ...currentSerie, valeurs };
+                          updateNormalized({ ...normalized, series });
+                        }}
+                        className="h-8 w-20 shrink-0 rounded-md border bg-background px-2 text-right text-xs font-medium outline-none focus:ring-2 focus:ring-primary/25"
+                        aria-label={`Valeur ${vi + 1}`}
+                        type="number"
+                      />
+                    ) : (
+                      <span className="text-xs font-medium w-14 text-right shrink-0">
+                        {val}
+                      </span>
+                    )}
                   </div>
                 );
               })}
             </div>
           ))}
-          {(parsed.observations || []).length > 0 && (
+
+          {(normalized.observations || []).length > 0 && (
             <p className="text-xs text-muted-foreground border-t pt-2">
-              {parsed.observations[0]}
+              {normalized.observations[0]}
             </p>
           )}
         </div>
@@ -152,11 +370,27 @@ function ImageCard({ image, index }: { image: any; index: number }) {
     );
   }
 
-  // Fallback plain image info
+  // ─── Fallback ──────────────────────────────────
   return (
     <div className="flex items-center gap-3 p-3 border rounded-lg bg-card">
       <ImageIcon className="w-4 h-4 text-muted-foreground shrink-0" />
-      <p className="text-sm text-muted-foreground">{image.description || `Image ${index + 1}`}</p>
+
+      {editable ? (
+        <Textarea
+          value={
+            typeof image?.description === 'string'
+              ? image.description
+              : JSON.stringify(image || {}, null, 2)
+          }
+          onChange={e => onImageChange?.({ ...image, description: e.target.value })}
+          className="min-h-20 resize-none text-xs"
+          aria-label={`Description image ${index + 1}`}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {image?.description || `Image ${index + 1}`}
+        </p>
+      )}
     </div>
   );
 }
@@ -172,6 +406,42 @@ export function ExtractStep() {
 
   const handleContentChange = (slideId: string, content: string) => {
     updateSlide(slideId, { extractedContent: content });
+  };
+
+  const handleTableCellChange = (
+    slideId: string,
+    tableIndex: number,
+    rowIndex: number,
+    cellIndex: number,
+    value: string
+  ) => {
+    const slide = slides.find(s => s.id === slideId);
+    if (!slide) return;
+
+    const tables = [...(slide.tables || [])];
+    const table = tables[tableIndex];
+    if (!table) return;
+
+    const lignes = (table.lignes || []).map((row: any[]) => [...row]);
+    lignes[rowIndex] = lignes[rowIndex] || [];
+    lignes[rowIndex][cellIndex] = value;
+    tables[tableIndex] = {
+      ...table,
+      lignes,
+      nb_lignes: lignes.length,
+      nb_colonnes: Math.max(...lignes.map((row: any[]) => row.length), 0),
+    };
+
+    updateSlide(slideId, { tables });
+  };
+
+  const handleImageChange = (slideId: string, imageIndex: number, image: any) => {
+    const slide = slides.find(s => s.id === slideId);
+    if (!slide) return;
+
+    const images = [...(slide.images || [])];
+    images[imageIndex] = image;
+    updateSlide(slideId, { images });
   };
 
   const toggleEditMode = (slideId: string) => {
@@ -351,7 +621,16 @@ export function ExtractStep() {
                                   <tr className="bg-muted/50">
                                     {(table.lignes?.[0] || []).map((cell: string, ci: number) => (
                                       <th key={ci} className="border-b border-r last:border-r-0 px-3 py-2 text-left text-xs font-semibold">
-                                        {cell}
+                                        {editMode[selectedSlide.id] ? (
+                                          <input
+                                            value={cell}
+                                            onChange={e => handleTableCellChange(selectedSlide.id, i, 0, ci, e.target.value)}
+                                            className="h-8 min-w-28 w-full rounded-md border bg-background px-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/25"
+                                            aria-label={`Entete colonne ${ci + 1}`}
+                                          />
+                                        ) : (
+                                          cell
+                                        )}
                                       </th>
                                     ))}
                                   </tr>
@@ -361,7 +640,16 @@ export function ExtractStep() {
                                     <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-muted/20'}>
                                       {row.map((cell, ci) => (
                                         <td key={ci} className="border-b border-r last:border-r-0 px-3 py-2 text-xs">
-                                          {cell}
+                                          {editMode[selectedSlide.id] ? (
+                                            <input
+                                              value={cell}
+                                              onChange={e => handleTableCellChange(selectedSlide.id, i, ri + 1, ci, e.target.value)}
+                                              className="h-8 min-w-28 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/25"
+                                              aria-label={`Cellule ligne ${ri + 2}, colonne ${ci + 1}`}
+                                            />
+                                          ) : (
+                                            cell
+                                          )}
                                         </td>
                                       ))}
                                     </tr>
@@ -393,7 +681,13 @@ export function ExtractStep() {
                       <SectionTitle icon={<ImageIcon className="w-4 h-4" />} title={`Images analysées (${selectedSlide.images!.length})`} />
                       <div className="space-y-4 mt-3">
                         {selectedSlide.images!.map((img, i) => (
-                          <ImageCard key={i} image={img} index={i} />
+                          <ImageCard
+                            key={i}
+                            image={img}
+                            index={i}
+                            editable={editMode[selectedSlide.id]}
+                            onImageChange={image => handleImageChange(selectedSlide.id, i, image)}
+                          />
                         ))}
                       </div>
                     </section>
@@ -436,7 +730,7 @@ export function ExtractStep() {
                   <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/20 rounded-lg">
                     <Check className="w-4 h-4 text-accent shrink-0" />
                     <span className="text-sm text-accent">
-                      Vous pouvez modifier le contenu extrait avant de passer à l&apos;analyse
+                      Vous pouvez modifier le contenu extrait, les tableaux et les graphiques images avant de passer à l&apos;analyse
                     </span>
                   </div>
 

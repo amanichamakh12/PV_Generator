@@ -7,7 +7,7 @@ def extract_chart_with_ollama(image_path: str) -> dict:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
     payload = {
-        "model": "qwen2.5vl:7b",
+        "model": "qwen2.5vl:3b",
         "messages": [
             {
                 "role": "user",
@@ -24,17 +24,16 @@ def extract_chart_with_ollama(image_path: str) -> dict:
     }
 
     response = requests.post(
-        "http://localhost:11434/api/chat",   # 🔥 FIXED HERE
+        "http://localhost:11434/api/chat",  
         json=payload,
-        timeout=120
     )
     response.raise_for_status()
 
     data = response.json()
-    content = data["message"]["content"]   # 🔥 correct for /api/chat
+    content = data["message"]["content"]  
 
     return json.loads(content)
 
 
-result = extract_chart_with_ollama(r"C:\Users\user\Downloads\circular.png")
+result = extract_chart_with_ollama(r"C:\Users\user\Downloads\deuxTypes.png")
 print(json.dumps(result, indent=2, ensure_ascii=False))

@@ -2,7 +2,8 @@
 
 import re
 
-from Pv_Generator import EXPORT_DIR, export_pv_to_docx
+from backend.Pv_Generator import EXPORT_DIR, export_pv_to_docx
+
 
 
 def build_health_status_service() -> dict:

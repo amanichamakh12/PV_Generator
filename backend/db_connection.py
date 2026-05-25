@@ -1,25 +1,23 @@
 """SQLAlchemy database configuration and session factory."""
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+import os
 
-DATABASE_URL = (
-    "mssql+pyodbc://@DESKTOP-OQR56L7\\DEVELOPPER/PV_DATABASE"
-    "?driver=ODBC+Driver+17+for+SQL+Server"
-    "&trusted_connection=yes"
-    "&TrustServerCertificate=yes"
-)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./data/pv.db")
 
 engine = create_engine(
     DATABASE_URL,
-    echo=False,   # 👈 important en production (évite logs SQL)
-    pool_pre_ping=True
+    echo=False,
+    pool_pre_ping=True,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
 )
 
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
-    bind=engine
+    bind=engine,
 )
 
 Base = declarative_base()

@@ -6,9 +6,9 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from typing import Optional
 import re
-from PV_Generator.backend.Graph.PipelineMin import extract_chart_with_ollama
+from backend.Graph.PipelineMin import extract_chart_with_ollama
 # from chart_ocr_extractor import describe_image  # ancien pipeline LLaVA/ocr
-from PV_Generator.backend.Graph.MeilleurVersionGraph import describe_image_groq
+from backend.Graph.MeilleurVersionGraph import describe_image_groq
 
 logger = logging.getLogger(__name__)
 
@@ -439,12 +439,8 @@ def _extract_images_from_group(shapes):
 
 
 def _run_chart_pipeline(image_bytes: bytes) -> dict:
-    """
-    Remplace describe_image() — appelle le nouveau script MeilleurVersionGraph.
-    Retourne toujours un dict, jamais une exception.
-    """
     try:
-        description = extract_chart_with_ollama(image_bytes)
+        description = extract_chart_with_ollama(image_bytes)  
         if isinstance(description, dict):
             return description
         return {
@@ -456,6 +452,7 @@ def _run_chart_pipeline(image_bytes: bytes) -> dict:
         return result or {"erreur": "pipeline returned None"}
     except Exception as e:
         return {"erreur": str(e)}
+
 
 def _extract_title(slide) -> Optional[str]:
     """
