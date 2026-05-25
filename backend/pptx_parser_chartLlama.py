@@ -1,16 +1,16 @@
-from venv import logger
+"""PPTX parser with native chart extraction and image analysis pipeline."""
+
+import logging
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
-from pptx.util import Pt
 from typing import Optional
-import requests
-import base64
 import re
-from PipelineMin import extract_chart_with_ollama
-from ocr import get_ocr_tokens
+from PV_Generator.backend.Graph.PipelineMin import extract_chart_with_ollama
 # from chart_ocr_extractor import describe_image  # ancien pipeline LLaVA/ocr
-from MeilleurVersionGraph import describe_image_groq
+from PV_Generator.backend.Graph.MeilleurVersionGraph import describe_image_groq
+
+logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 

@@ -1,4 +1,9 @@
-import base64, json, requests
+"""Chart analysis helper using Ollama multimodal models."""
+
+import base64
+import json
+
+import requests
 
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llava-llama3"  # ou qwen2-vl:7b
