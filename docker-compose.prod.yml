@@ -1,0 +1,27 @@
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.12.6}
+    restart: always
+    cpus: "4.0"
+    mem_limit: 8g
+
+  backend:
+    image: pv-generator-backend:1.0.0
+    restart: always
+    cpus: "2.0"
+    mem_limit: 2g
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      PYTHONUNBUFFERED: "1"
+
+  frontend:
+    image: pv-generator-frontend:1.0.0
+    restart: always
+    cpus: "1.0"
+    mem_limit: 1g
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+
+  ollama-init:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.12.6}
