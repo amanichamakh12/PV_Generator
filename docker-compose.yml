@@ -2,6 +2,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: pv-ollama
+    environment:
+      OLLAMA_CONTEXT_LENGTH: 2048
     ports:
       - "11434:11434"
     volumes:
@@ -21,7 +23,7 @@ services:
     container_name: pv-backend
     environment:
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5vl:7b}
       PYTHONUNBUFFERED: "1"
     ports:
       - "8000:8000"
@@ -48,7 +50,7 @@ services:
       dockerfile: Dockerfile
     container_name: pv-frontend
     environment:
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8001}
     ports:
       - "3000:3000"
     depends_on:
@@ -65,7 +67,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5vl:7b}
     entrypoint: ["/bin/sh", "-c"]
     command: ollama pull "$${OLLAMA_MODEL}"
 

@@ -1,11 +1,15 @@
+import os
 import re
 import io
 import numpy as np
 import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
+pytesseract.pytesseract.tesseract_cmd = (
+    "/usr/bin/tesseract"
+    if os.name != "nt"
+    else r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+)
 # ── Constantes ────────────────────────────────────────────────
 X_AXIS_MAX        = 40     # tokens axe Y (x trop petit → ignorer)
 VALUE_MIN_CONF    = 70     # confiance min pour les valeurs de barres

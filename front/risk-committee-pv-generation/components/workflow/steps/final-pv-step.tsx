@@ -69,12 +69,9 @@ const generateFinalPV = async (pvDraft: string, agendaItems: any[]) => {
 
   // Étape 4 — Appel fetch
   console.time("⏱️ Durée appel /api/merge-notes");
-<<<<<<< HEAD
   const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
   const response = await fetch(`${apiUrl}/api/merge-notes`, {
-=======
-  const response = await fetch(`${API_BASE_URL}/api/merge-notes`, {
->>>>>>> 6069a5aa2c36e900a6bf0e5b141825480666f695
+
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
