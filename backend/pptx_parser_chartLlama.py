@@ -1,12 +1,13 @@
 """PPTX parser with native chart extraction and image analysis pipeline."""
 
 import logging
-
+from PIL import Image
+import io
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from typing import Optional
 import re
-from backend.Graph.PipelineMin import extract_chart_with_ollama
+from backend.Graph.PipelineMin import extract_chart_with_ollama, extract_chart
 # from chart_ocr_extractor import describe_image  # ancien pipeline LLaVA/ocr
 from backend.Graph.MeilleurVersionGraph import describe_image_groq
 
@@ -22,7 +23,6 @@ AGENDA_TITLE_HINTS = (
 )
 
 AGENDA_ITEMS_TO_IGNORE = (
-    "confirmation de l’ordre du jour",
 )
 
 
@@ -440,6 +440,7 @@ def _extract_images_from_group(shapes):
 
 def _run_chart_pipeline(image_bytes: bytes) -> dict:
     try:
+        #description=extract_chart(image_bytes)
         description = extract_chart_with_ollama(image_bytes)  
         if isinstance(description, dict):
             return description
