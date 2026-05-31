@@ -20,6 +20,7 @@ import {
   Check
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { text } from 'stream/consumers';
 
 // Mock AI analysis function for agenda items
 const mockAnalyzeAgendaItem = async (slides: { title: string; content: string; analysis: string }[]): Promise<string> => {
@@ -61,17 +62,17 @@ export function AgendaAnalysisStep() {
     : [];
 
   const handleAnalyzeAgenda = async (agendaId: string) => {
-    const agenda = agendaItems.find(a => a.id === agendaId);
-    if (!agenda) return;
+  const agenda = agendaItems.find(a => a.id === agendaId);
+  if (!agenda) return;
 
-    const relatedSlides = slides.filter(s => s.agendaItemId === agendaId);
+  const relatedSlides = slides.filter(s => s.agendaItemId === agendaId);
+  setAnalyzingItems(prev => new Set([...prev, agendaId]));
 
-    setAnalyzingItems(prev => new Set([...prev, agendaId]));
+  try {
+    const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
-
-      const body = {
+    const body = {
+      agenda_group: {
         ordre_du_jour: agenda.title,
         slides: relatedSlides.map(s => ({
           index: s.slideNumber,
@@ -82,54 +83,54 @@ export function AgendaAnalysisStep() {
           images: s.images ?? [],
           notes: s.notes ?? null,
         })),
-        use_llm: true,
-      };
+      },
+      use_llm: true,
+    };
 
-      const res = await fetch(`${apiUrl}/api/analyze-agenda-full`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+    const res = await fetch(`${apiUrl}/api/test-agenda-analysis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || `API error ${res.status}`);
-      }
-
-      const data = await res.json();
-      console.log('✅ Analyse agenda reçue:', data);
-
-      const result = data.result || {};
-      const sections: string[] = [];
-
-      if (result?.analyse) {
-        sections.push(result.analyse);
-      }
-      if (result?.constats?.length) {
-        sections.push('\n**Constats :**');
-        result.constats.forEach((c: string) => sections.push(`• ${c}`));
-      }
-      if (result?.risques?.length) {
-        sections.push('\n**Risques identifiés :**');
-        result.risques.forEach((r: string) => sections.push(`• ${r}`));
-      }
-      if (result?.actions_suggerees?.length) {
-        sections.push('\n**Actions suggérées :**');
-        result.actions_suggerees.forEach((a: string) => sections.push(`• ${a}`));
-      }
-
-      const analysis = sections.join('\n');
-      updateAgendaItem(agendaId, { analysis, isAnalyzed: true });
-    } catch (err: any) {
-      console.error('❌ Erreur API analyze-agenda-full:', err.message);
-    } finally {
-      setAnalyzingItems(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(agendaId);
-        return newSet;
-      });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || `API error ${res.status}`);
     }
-  };
+
+    const data = await res.json();
+    console.log('✅ Analyse agenda reçue:', data);
+
+    const result = data.result || {};
+    const sections: string[] = [];
+
+    if (result?.analyse) sections.push(result.analyse);
+    if (result?.constats?.length) {
+      sections.push('\n**Constats :**');
+      result.constats.forEach((c: string) => sections.push(`• ${c}`));
+    }
+    if (result?.risques?.length) {
+      sections.push('\n**Risques identifiés :**');
+      result.risques.forEach((r: string) => sections.push(`• ${r}`));
+    }
+    if (result?.actions_suggerees?.length) {
+      sections.push('\n**Actions suggérées :**');
+      result.actions_suggerees.forEach((a: string) => sections.push(`• ${a}`));
+    }
+
+    const analysis = sections.join('\n');
+    updateAgendaItem(agendaId, { analysis, isAnalyzed: true });
+
+  } catch (err: any) {
+    console.error('❌ Erreur API analyse ordre du jour:', err.message);
+  } finally {
+    setAnalyzingItems(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(agendaId);
+      return newSet;
+    });
+  }
+};
 
   const handleQuickFill = () => {
     const staticAnalyses: Record<number, string> = {
@@ -202,22 +203,7 @@ export function AgendaAnalysisStep() {
             <Badge variant="secondary" className="bg-accent/20 text-accent">{validatedCount}/{agendaItems.length}</Badge>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleQuickFill}
-            className="gap-2 border-dashed text-muted-foreground"
-          >
-            <Sparkles className="w-4 h-4" />
-            Remplissage rapide (test)
-          </Button>
-          {!allAgendasValidated && (
-            <p className="text-sm text-muted-foreground">
-              Analysez et validez tous les ordres du jour pour continuer
-            </p>
-          )}
-        </div>
+       
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -427,3 +413,4 @@ export function AgendaAnalysisStep() {
     </div>
   );
 }
+

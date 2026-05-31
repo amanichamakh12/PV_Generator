@@ -13,5 +13,6 @@ pillow==10.4.0
 pytesseract==0.3.13
 opencv-python-headless==4.10.0.84
 groq==0.11.0
-transformers torch==2.7.1
+scipy
+deep-translator
 

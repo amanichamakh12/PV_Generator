@@ -19,7 +19,6 @@ import type { WorkflowStep } from '@/types/pv-generator';
 const steps: { id: WorkflowStep; label: string; icon: React.ReactNode; description: string }[] = [
   { id: 'upload', label: 'Import', icon: <Upload className="w-5 h-5" />, description: 'Importer le support' },
   { id: 'extract', label: 'Extraction', icon: <FileSearch className="w-5 h-5" />, description: 'Extraire le contenu' },
-  { id: 'slide-analysis', label: 'Analyse Slides', icon: <Layers className="w-5 h-5" />, description: 'Analyser par slide' },
   { id: 'agenda-analysis', label: 'Ordre du Jour', icon: <ListChecks className="w-5 h-5" />, description: 'Analyser par ordre' },
   { id: 'draft-generation', label: 'Draft PV', icon: <FileText className="w-5 h-5" />, description: 'Générer le brouillon' },
   { id: 'meeting-notes', label: 'Notes Réunion', icon: <MessageSquare className="w-5 h-5" />, description: 'Prendre les notes' },

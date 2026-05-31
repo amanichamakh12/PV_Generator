@@ -1,3 +1,10 @@
+export interface ImageExtractionState {
+  token: string | null;
+  total: number;
+  completed: number;
+  error: string | null;
+}
+
 export interface Slide {
   id: string;
   slideNumber: number;
@@ -56,7 +63,6 @@ export interface PVDocument {
 export type WorkflowStep = 
   | 'upload'
   | 'extract'
-  | 'slide-analysis'
   | 'agenda-analysis'
   | 'draft-generation'
   | 'meeting-notes'
@@ -70,9 +76,9 @@ export interface WorkflowState {
   agendaItems: AgendaItem[];
   isProcessing: boolean;
   error: string | null;
-  draftContent: string; // affichage UI
-  draftJson: any;       // données backend
+  draftContent: string;
+  draftJson: any;
   finalContent: string;
   finalJson: any;
-
+  imageExtraction: ImageExtractionState;
 }

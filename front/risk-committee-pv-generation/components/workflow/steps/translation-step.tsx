@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Document, AlignmentType } from 'docx';
+import { Document as DocxDoc} from 'docx';
 import { 
   Languages, 
   Sparkles, 
@@ -20,116 +22,33 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BorderStyle, LineRuleType, Packer, Paragraph, TextRun } from 'docx';
+import { PVRenderer } from './PVRenderer';
 
-// Mock translation function
-const mockTranslate = async (content: string, targetLang: 'arabic' | 'english'): Promise<string> => {
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  if (targetLang === 'arabic') {
-    return `# محضر الاجتماع
-## لجنة المخاطر
+const translatePV = async (content: string, targetLang: TranslationLang): Promise<string> => {
+  const langMap = {
+    arabic: 'ar',
+    english: 'en',
+  };
+    const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+  const response = await fetch(`${apiUrl}/api/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pv: content,
+      target_language: langMap[targetLang],
+    }),
+  });
 
-**التاريخ:** ${new Date().toLocaleDateString('ar-SA')}
-
----
-
-### المشاركون
-
-*سيتم استكمالها خلال الاجتماع*
-
----
-
-### جدول الأعمال
-
-تمت مناقشة النقاط التالية خلال اجتماع لجنة المخاطر:
-
-1. مقدمة وسياق
-2. المخاطر التشغيلية والتخفيف
-3. المخاطر المالية
-4. الاستنتاجات وخطة العمل
-
----
-
-### ملخص المناقشات
-
-تم تحليل جميع المخاطر المحددة وتمت الموافقة على خطط التخفيف المقترحة.
-
-**القرارات المتخذة:**
-- التحقق من صحة التدابير التصحيحية المقترحة
-- تخصيص الموارد اللازمة
-- الجدول الزمني للتنفيذ
-
----
-
-### الخطوات التالية
-
-المتابعة الشهرية للمؤشرات وتقديم تقرير التقدم في الاجتماع القادم.
-
----
-
-**الحالة:** ✓ تم التحقق
-**تاريخ الترجمة:** ${new Date().toLocaleDateString('ar-SA')}
-`;
-  } else {
-    return `# MEETING MINUTES
-## Risk Committee
-
-**Date:** ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-
-**Committee Type:** Risk Committee
-
----
-
-### PARTICIPANTS
-
-*To be completed during the meeting*
-
----
-
-### AGENDA
-
-The following items were discussed during the Risk Committee meeting:
-
-1. Introduction and Context
-2. Operational Risks and Mitigation
-3. Financial Risks
-4. Conclusions and Action Plan
-
----
-
-### DISCUSSION SUMMARY
-
-All identified risks were analyzed and proposed mitigation plans were approved.
-
-**Decisions Made:**
-- Validation of proposed corrective measures
-- Allocation of necessary resources
-- Implementation timeline
-
-**Actions to be Taken:**
-- Monthly monitoring of indicators
-- Progress report at next committee
-- Documentation of lessons learned
-
----
-
-### NEXT STEPS
-
-To be defined based on the decisions made during the meeting.
-
----
-
-### NEXT MEETING
-
-*Date to be confirmed*
-
----
-
-**Status:** ✓ Validated
-**Translation Date:** ${new Date().toLocaleDateString('en-US')}
-`;
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Erreur traduction [${response.status}]: ${error}`);
   }
+
+  const data = await response.json();
+  return data.pv;
 };
+  
 
 type TranslationLang = 'arabic' | 'english';
 
@@ -140,28 +59,28 @@ export function TranslationStep() {
   const [validatedTranslations, setValidatedTranslations] = useState<Set<TranslationLang>>(new Set());
 
   const handleTranslate = async (lang: TranslationLang) => {
-    if (!document?.finalContent) return;
+  if (!document?.finalContent) return;
 
-    setTranslatingLangs(prev => new Set([...prev, lang]));
-    
-    try {
-      const translation = await mockTranslate(document.finalContent, lang);
-      updateDocument({
-        translations: {
-          ...document.translations,
-          [lang]: translation
-        }
-      });
-    } catch {
-      console.error('Error translating');
-    } finally {
-      setTranslatingLangs(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(lang);
-        return newSet;
-      });
-    }
-  };
+  setTranslatingLangs(prev => new Set([...prev, lang]));
+
+  try {
+    const translation = await translatePV(document.finalContent, lang);  // ✅
+    updateDocument({
+      translations: {
+        ...document.translations,
+        [lang]: translation,
+      },
+    });
+  } catch (err: any) {
+    console.error('Erreur traduction:', err);
+  } finally {
+    setTranslatingLangs(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(lang);
+      return newSet;
+    });
+  }
+};
 
   const handleRegenerateTranslation = async (lang: TranslationLang) => {
     setValidatedTranslations(prev => {
@@ -191,31 +110,118 @@ export function TranslationStep() {
     });
   };
 
-  const handleDownload = (lang: 'french' | TranslationLang) => {
-    let content = '';
-    let filename = '';
+const handleDownload = async (lang: 'french' | TranslationLang) => {
+  let content = '';
+  let filename = '';
 
-    if (lang === 'french') {
-      content = document?.finalContent || '';
-      filename = 'PV_Comite_Risques_FR.md';
-    } else if (lang === 'arabic') {
-      content = document?.translations?.arabic || '';
-      filename = 'PV_Comite_Risques_AR.md';
-    } else {
-      content = document?.translations?.english || '';
-      filename = 'PV_Comite_Risques_EN.md';
+  if (lang === 'french') {
+    content = document?.finalContent || '';
+    filename = 'PV_Comite_Risques_FR.docx';
+  } else if (lang === 'arabic') {
+    content = document?.translations?.arabic || '';
+    filename = 'PV_Comite_Risques_AR.docx';
+  } else {
+    content = document?.translations?.english || '';
+    filename = 'PV_Comite_Risques_EN.docx';
+  }
+
+  if (!content) return;
+
+  const doc = createDocxDocumentFromDraft(content, document?.participants ?? []);
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const a = window.document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  window.document.body.appendChild(a);
+  a.click();
+  window.document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+function getRunsFromLine(line: string): TextRun[] {
+  const parts = line.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map(part =>
+    part.startsWith("**") && part.endsWith("**")
+      ? new TextRun({ text: part.slice(2, -2), bold: true, font: "Calibri", size: 22 })
+      : new TextRun({ text: part, font: "Calibri", size: 22 })
+  );
+}
+
+function createDocxDocumentFromDraft(content: string, participants: string[] = []) {
+  const paragraphs: Paragraph[] = [];
+  const lines = content.replace(/\\n/g, '\n').split(/\r?\n/);
+
+  const horizontalRule = new Paragraph({
+    border: { bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 } },
+    spacing: { after: 200 },
+    children: [],
+  });
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+
+    if (!line) { paragraphs.push(new Paragraph({ spacing: { after: 100 } })); return; }
+
+    if (line === '---') {
+      paragraphs.push(new Paragraph({ border: { bottom: { color: "CCCCCC", size: 4, style: BorderStyle.SINGLE, space: 1 } }, spacing: { after: 200 }, children: [] }));
+      return;
     }
 
-    const blob = new Blob([content], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = window.document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    window.document.body.appendChild(a);
-    a.click();
-    window.document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+    if (line.startsWith('# ')) {
+      paragraphs.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 400, after: 200 }, children: [new TextRun({ text: line.replace('# ', ''), bold: true, size: 36, color: "000000", font: "Calibri" })] }));
+      paragraphs.push(horizontalRule);
+      return;
+    }
+
+    if (line.startsWith('## ')) {
+      paragraphs.push(new Paragraph({ spacing: { before: 300, after: 120 }, border: { left: { color: "000000", size: 12, style: BorderStyle.SINGLE, space: 8 } }, indent: { left: 200 }, children: [new TextRun({ text: line.replace('## ', ''), bold: true, size: 28, color: "000000", font: "Calibri" })] }));
+      return;
+    }
+
+    if (line.startsWith('### ')) {
+      paragraphs.push(new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: line.replace('### ', ''), bold: true, italics: true, size: 24, color: "000000", font: "Calibri" })] }));
+      return;
+    }
+
+    if (line.startsWith('- ')) {
+      paragraphs.push(new Paragraph({ spacing: { after: 80 }, indent: { left: 400, hanging: 200 }, children: [new TextRun({ text: `– ${line.replace('- ', '')}`, size: 22, color: "000000", font: "Calibri" })] }));
+      return;
+    }
+
+    if (line.startsWith('• ')) {
+      paragraphs.push(new Paragraph({ spacing: { after: 80 }, indent: { left: 600, hanging: 200 }, children: [new TextRun({ text: line, size: 22, color: "000000", font: "Calibri" })] }));
+      return;
+    }
+
+    if (/^\d+\.\s/.test(line)) {
+      paragraphs.push(new Paragraph({ spacing: { after: 80 }, indent: { left: 400 }, children: [new TextRun({ text: line, size: 22, color: "000000", font: "Calibri" })] }));
+      return;
+    }
+
+    paragraphs.push(new Paragraph({ spacing: { after: 100 }, children: getRunsFromLine(line) }));
+  });
+
+  // Section signatures
+  if (participants.length > 0) {
+    paragraphs.push(new Paragraph({ spacing: { before: 600, after: 200 }, border: { bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 } }, children: [new TextRun({ text: "SIGNATURES", bold: true, size: 28, font: "Calibri", color: "000000" })] }));
+
+    for (let i = 0; i < participants.length; i += 2) {
+      const [leftName, leftRole] = participants[i].split(" — ");
+      const right = participants[i + 1];
+      const [rightName, rightRole] = right ? right.split(" — ") : ["", ""];
+
+      paragraphs.push(new Paragraph({ spacing: { before: 400, after: 60 }, children: [new TextRun({ text: leftName, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: "\t\t\t\t", size: 22 }), new TextRun({ text: rightName, bold: true, size: 22, font: "Calibri" })] }));
+      paragraphs.push(new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: leftRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }), new TextRun({ text: "\t\t\t\t", size: 22 }), new TextRun({ text: rightRole || "", italics: true, size: 20, font: "Calibri", color: "444444" })] }));
+      paragraphs.push(new Paragraph({ spacing: { after: 200 }, children: [new TextRun({ text: "_______________________", size: 22, font: "Calibri" }), new TextRun({ text: "\t\t\t\t", size: 22 }), new TextRun({ text: rightName ? "_______________________" : "", size: 22, font: "Calibri" })] }));
+    }
+  }
+
+  return new DocxDoc({
+    styles: { default: { document: { run: { font: "Calibri", size: 22, color: "000000" }, paragraph: { spacing: { line: 276, lineRule: LineRuleType.AUTO } } } } },
+    sections: [{ properties: { page: { margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 } } }, children: paragraphs }],
+  });
+}
 
   const handleDownloadAll = () => {
     handleDownload('french');
@@ -325,11 +331,12 @@ export function TranslationStep() {
                     Télécharger
                   </Button>
                 </div>
-                <ScrollArea className="h-[450px] border rounded-lg p-4">
-                  <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-                    {document?.finalContent}
-                  </div>
-                </ScrollArea>
+             {document?.finalContent && (
+  <ScrollArea className="h-[450px] border rounded-lg p-4">
+    <PVRenderer content={document.finalContent} />
+  </ScrollArea>
+)}
+                
               </div>
             </TabsContent>
 
@@ -379,13 +386,9 @@ export function TranslationStep() {
                   </div>
                 ) : document?.translations?.arabic ? (
                   <>
-                    <Textarea
-                      value={document.translations.arabic}
-                      onChange={(e) => handleTranslationChange('arabic', e.target.value)}
-                      className="min-h-[400px] resize-none font-mono text-sm text-right"
-                      dir="rtl"
-                      disabled={validatedTranslations.has('arabic')}
-                    />
+                    <ScrollArea className="h-[450px] border rounded-lg p-4" dir="rtl">
+        <PVRenderer content={document.translations.arabic} />
+      </ScrollArea>
                     {!validatedTranslations.has('arabic') && (
                       <div className="flex justify-end">
                         <Button
@@ -465,12 +468,9 @@ export function TranslationStep() {
                   </div>
                 ) : document?.translations?.english ? (
                   <>
-                    <Textarea
-                      value={document.translations.english}
-                      onChange={(e) => handleTranslationChange('english', e.target.value)}
-                      className="min-h-[400px] resize-none font-mono text-sm"
-                      disabled={validatedTranslations.has('english')}
-                    />
+                   <ScrollArea className="h-[450px] border rounded-lg p-4">
+        <PVRenderer content={document.translations.english} />
+      </ScrollArea>
                     {!validatedTranslations.has('english') && (
                       <div className="flex justify-end">
                         <Button
@@ -509,3 +509,4 @@ export function TranslationStep() {
     </div>
   );
 }
+

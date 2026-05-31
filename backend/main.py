@@ -1,5 +1,6 @@
 """FastAPI app bootstrap for PV backend."""
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -7,6 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.db_connection import Base, engine
 from backend.routes_layer.pv_routes import router as pv_router
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 Path("data").mkdir(parents=True, exist_ok=True)
 Base.metadata.create_all(bind=engine)

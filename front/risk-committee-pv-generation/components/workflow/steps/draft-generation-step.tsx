@@ -22,8 +22,12 @@ import {
   X,
   Download
 } from 'lucide-react';
+import {
+  AlignmentType,
+  LineRuleType,
+} from "docx";
 import { cn } from '@/lib/utils';
-import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, BorderStyle } from 'docx';
 
 // Mock function to generate draft PV
 const mockGenerateDraftPV = async (
@@ -104,6 +108,7 @@ const handleGenerateDraft = async () => {
     const formattedDate = document.date.toLocaleDateString('fr-FR', {
       year: 'numeric',
       month: 'long',
+      day: 'numeric',
     });
 
     const fullDate = document.date.toLocaleDateString('fr-FR', {
@@ -118,19 +123,25 @@ const handleGenerateDraft = async () => {
       date: fullDate,
 
       introduction: `
-Le COMITÉ DES RISQUES de Direction des Risques s'est réuni le ${formattedDate} au siège de la banque, sur invitation de son Président, pour délibérer sur l'ordre du jour suivant.
+Le ${document.title || 'COMITÉ DES RISQUES'} s'est réuni le ${formattedDate} au centre d'affaire de la Wifak banque situé aux Berges du Lac 3, sur invitation de son Président, pour délibérer sur l'ordre du jour suivant.
 
+    `,
+       présence: `
 La feuille de présence a été établie et dûment signée par les membres présents.
-
-Après avoir constaté la présence requise des membres, le Président a ouvert les travaux du comité en souhaitant la bienvenue aux présents.
-      `,
+   `,
 
       participants,
+      Conformation_présence: `
+      Après avoir constaté la présence requise des membres, le Président a ouvert les travaux du comité en souhaitant la bienvenue aux présents.
+   `,
+
 
       ordre_du_jour: [
-        "Confirmation de l’ordre du jour",
-        ...agendaItems.map((a) => a.title),
-      ],
+  "Confirmation de l'ordre du jour",
+  ...agendaItems
+    .filter((a) => a.title !== "Confirmation de l'ordre du jour")
+    .map((a) => a.title),
+],
 
       points: [
         {
@@ -142,15 +153,14 @@ Après avoir constaté la présence requise des membres, le Président a ouvert 
             "Le comité a validé l’ordre du jour proposé.",
         },
 
-        ...agendaItems.map((a, i) => ({
-          numero: String(i + 2),
-          titre: a.title,
-          discussion:
-            a.analysis || 'Aucune analyse disponible pour ce point.',
-          conclusion:
-            `Le Comité a pris acte des éléments présentés relatifs au point ${i + 2}.`,
-        })),
-      ],
+ ...agendaItems
+    .filter((a) => a.title !== "Confirmation de l'ordre du jour")
+    .map((a, i) => ({
+      numero: String(i + 2),
+      titre: a.title,
+      discussion: a.analysis || 'Aucune analyse disponible pour ce point.',
+      conclusion: `Le Comité a pris acte des éléments présentés relatifs au point ${i + 2}.`,
+    })),],
 
       plan_action: slides
         .flatMap((s) => s.tables ?? [])
@@ -197,70 +207,203 @@ function createDocxDocumentFromDraft(content: string) {
   const paragraphs: Paragraph[] = [];
   const lines = content.split(/\r?\n/);
 
+  // Ligne de séparation réutilisable
+  const horizontalRule = new Paragraph({
+    border: {
+      bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 },
+    },
+    spacing: { after: 200 },
+    children: [],
+  });
+
   lines.forEach((rawLine) => {
     const line = rawLine.trim();
 
     if (!line) {
-      paragraphs.push(new Paragraph(''));
+      paragraphs.push(new Paragraph({ spacing: { after: 100 } }));
       return;
     }
 
     if (line.startsWith('# ')) {
+      // Titre principal — grand, gras, centré, souligné
       paragraphs.push(
         new Paragraph({
-          heading: HeadingLevel.HEADING_1,
-          children: getRunsFromLine(line.replace('# ', '')),
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 400, after: 200 },
+          children: [
+            new TextRun({
+              text: line.replace('# ', ''),
+              bold: true,
+              size: 36, // 18pt
+              color: "000000",
+              font: "Calibri",
+            }),
+          ],
         })
       );
+      paragraphs.push(horizontalRule);
       return;
     }
 
     if (line.startsWith('## ')) {
+      // Section — gras, bordure gauche noire
       paragraphs.push(
         new Paragraph({
-          heading: HeadingLevel.HEADING_2,
-          children: getRunsFromLine(line.replace('## ', '')),
+          spacing: { before: 300, after: 120 },
+          border: {
+            left: { color: "000000", size: 12, style: BorderStyle.SINGLE, space: 8 },
+          },
+          indent: { left: 200 },
+          children: [
+            new TextRun({
+              text: line.replace('## ', ''),
+              bold: true,
+              size: 28, // 14pt
+              color: "000000",
+              font: "Calibri",
+            }),
+          ],
         })
       );
       return;
     }
 
     if (line.startsWith('### ')) {
+      // Sous-section — gras, italique
       paragraphs.push(
         new Paragraph({
-          heading: HeadingLevel.HEADING_3,
-          children: getRunsFromLine(line.replace('### ', '')),
+          spacing: { before: 200, after: 80 },
+          children: [
+            new TextRun({
+              text: line.replace('### ', ''),
+              bold: true,
+              italics: true,
+              size: 24, // 12pt
+              color: "000000",
+              font: "Calibri",
+            }),
+          ],
         })
       );
       return;
     }
 
     if (line.startsWith('- ')) {
+      // Bullet propre avec tiret
       paragraphs.push(
         new Paragraph({
-          bullet: { level: 0 },
-          children: getRunsFromLine(line.replace('- ', '')),
+          spacing: { after: 80 },
+          indent: { left: 400, hanging: 200 },
+          children: [
+            new TextRun({
+              text: `– ${line.replace('- ', '')}`,
+              size: 22, // 11pt
+              color: "000000",
+              font: "Calibri",
+            }),
+          ],
         })
       );
+      // Section signatures
+  if (participants.length > 0) {
+    // Titre section
+    paragraphs.push(new Paragraph({
+      spacing: { before: 600, after: 200 },
+      border: {
+        bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 },
+      },
+      children: [new TextRun({
+        text: "SIGNATURES",
+        bold: true,
+        size: 28,
+        font: "Calibri",
+        color: "000000",
+      })],
+    }));
+
+    // Grille de signatures 2 par ligne
+    for (let i = 0; i < participants.length; i += 2) {
+      const left = participants[i];
+      const right = participants[i + 1];
+
+      const [leftName, leftRole] = left.split(" — ");
+      const [rightName, rightRole] = right ? right.split(" — ") : ["", ""];
+
+      // Noms
+      paragraphs.push(new Paragraph({
+        spacing: { before: 400, after: 60 },
+        children: [
+          new TextRun({ text: leftName, bold: true, size: 22, font: "Calibri" }),
+          new TextRun({ text: "\t\t\t\t", size: 22 }),
+          new TextRun({ text: rightName, bold: true, size: 22, font: "Calibri" }),
+        ],
+      }));
+
+      // Rôles
+      paragraphs.push(new Paragraph({
+        spacing: { after: 60 },
+        children: [
+          new TextRun({ text: leftRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }),
+          new TextRun({ text: "\t\t\t\t", size: 22 }),
+          new TextRun({ text: rightRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }),
+        ],
+      }));
+
+      // Ligne de signature
+      paragraphs.push(new Paragraph({
+        spacing: { after: 200 },
+        children: [
+          new TextRun({ text: "_______________________", size: 22, font: "Calibri" }),
+          new TextRun({ text: "\t\t\t\t", size: 22 }),
+          new TextRun({ text: rightName ? "_______________________" : "", size: 22, font: "Calibri" }),
+        ],
+      }));
+    }
+  }
       return;
     }
 
+    // Paragraphe normal
     paragraphs.push(
       new Paragraph({
+        spacing: { after: 100 },
         children: getRunsFromLine(line),
       })
     );
   });
 
   return new DocxDocument({
+    styles: {
+      default: {
+        document: {
+          run: {
+            font: "Calibri",
+            size: 22, // 11pt
+            color: "000000",
+          },
+          paragraph: {
+            spacing: { line: 276, lineRule: LineRuleType.AUTO },
+          },
+        },
+      },
+    },
     sections: [
       {
+        properties: {
+          page: {
+            margin: {
+              top: 1440,    // 2.54cm
+              bottom: 1440,
+              left: 1440,
+              right: 1440,
+            },
+          },
+        },
         children: paragraphs,
       },
     ],
   });
 }
-
 const handleDownloadDraftDocx = async () => {
   if (!document?.draftContent) return;
 
@@ -279,21 +422,28 @@ const handleDownloadDraftDocx = async () => {
 // Convertit le JSON structuré du PV en texte lisible
 function formatPVtoText(pv: any): string {
   const lines: string[] = [];
-
   lines.push(`# PROCÈS-VERBAL`);
   lines.push(`## ${pv.titre}\n`);
 
-  lines.push(`**Date :** ${pv.date}\n`);
-
-  // INTRODUCTION FIXE
+  // INTRODUCTION
   if (pv.introduction) {
     lines.push(pv.introduction.trim());
     lines.push('\n');
   }
+  
 
-  // PARTICIPANTS
-  lines.push(`## ÉTAIENT PRÉSENTS\n`);
+  // ORDRE DU JOUR (juste après "délibérer sur l'ordre du jour suivant")
+  lines.push(`## ORDRE DU JOUR\n`);
+  pv.ordre_du_jour?.forEach((item: string, i: number) => {
+    lines.push(`${i + 1}. ${item}`);
+  });
+  if (pv.présence) {
+    lines.push(pv.présence.trim());
+    lines.push('\n');
+  }
 
+  // ÉTAIENT PRÉSENTS (après "feuille de présence")
+  lines.push(`\n## ÉTAIENT PRÉSENTS\n`);
   if (pv.participants?.length) {
     pv.participants.forEach((p: string) => {
       lines.push(`- ${p}`);
@@ -301,25 +451,19 @@ function formatPVtoText(pv: any): string {
   } else {
     lines.push(`- Liste des participants à compléter`);
   }
-
-  // ORDRE DU JOUR
-  lines.push(`\n## ORDRE DU JOUR\n`);
-
-  pv.ordre_du_jour?.forEach((item: string, i: number) => {
-    lines.push(`${i + 1}. ${item}`);
-  });
+  if (pv.Conformation_présence) {
+    lines.push(pv.Conformation_présence.trim());
+    lines.push('\n');
+  }
 
   // DISCUSSIONS
   lines.push(`\n## COMPTE RENDU DES DISCUSSIONS\n`);
-
   pv.points?.forEach((point: any) => {
     lines.push(`\n### ${point.numero}. ${point.titre}\n`);
-
     if (point.discussion) {
       lines.push(point.discussion);
       lines.push('\n');
     }
-
     if (point.conclusion) {
       lines.push(`**Conclusion :** ${point.conclusion}\n`);
     }
@@ -328,7 +472,6 @@ function formatPVtoText(pv: any): string {
   // PLAN D'ACTION
   if (pv.plan_action?.length) {
     lines.push(`\n## PLAN D'ACTION\n`);
-
     pv.plan_action.forEach((a: any) => {
       lines.push(`### ${a.id}`);
       lines.push(`- Action : ${a.action}`);
@@ -337,9 +480,6 @@ function formatPVtoText(pv: any): string {
       lines.push(`- Statut : ${a.statut}\n`);
     });
   }
-
-  lines.push(`\n---`);
-  lines.push(`PV généré automatiquement par le système.`);
 
   return lines.join('\n');
 }
@@ -392,6 +532,17 @@ function formatPVtoText(pv: any): string {
             <CardDescription>Détails du document</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+  <label className="text-sm font-medium flex items-center gap-2">
+    <FileText className="w-4 h-4 text-muted-foreground" />
+    Titre du Comité
+  </label>
+  <Input
+    placeholder="Ex: PV Comité des Risques - Mai 2026"
+    value={document?.title || ''}
+    onChange={(e) => updateDocument({ title: e.target.value })}
+  />
+</div>
             {/* Date */}
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
@@ -401,7 +552,6 @@ function formatPVtoText(pv: any): string {
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-sm font-medium">
                   {document?.date.toLocaleDateString('fr-FR', {
-                    weekday: 'long',
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'

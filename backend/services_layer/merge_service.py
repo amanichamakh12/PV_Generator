@@ -27,8 +27,8 @@ def merge_notes_service(req_notes: list, pv_draft: dict) -> dict:
 
 
 def merge_service(req_notes: list, pv_draft: dict) -> dict:
-    notes = [{"participant": n.participant, "content": n.content} for n in req_notes]
-    merged = merge_notes_with_pv(OLLAMA_MODEL, pv_draft, notes)
+    notes = [{"participant": n.participant, "content": n.content, "ordre_du_jour": n.ordre_du_jour} for n in req_notes]
+    merged = merge_notes_with_pv(pv_draft, notes)
     return {
         "success": True,
         "pv": merged,

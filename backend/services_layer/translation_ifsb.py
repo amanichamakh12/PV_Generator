@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.Pv_Generator import _call_llm, _extract_json, translate_pv
 
+from backend.Pv_Generator import _call_llm, _extract_json
 
 
 IFRB_FR_AR_LEXICON: dict[str, str] = {
@@ -126,6 +127,24 @@ def _build_ifrb_prompt(pv: dict) -> str:
 6) أخرج JSON صالح فقط.
 """
 
+
+def translate_pv_en(client, pv: dict):
+    system = "You are a professional banking document translator."
+
+    prompt = f"""
+Translate this PV from French to English.
+
+Rules:
+- Keep JSON structure EXACTLY the same
+- Only translate text fields
+- Do not modify ids, dates, numbers
+- Output JSON only
+
+{pv}
+"""
+
+    raw = _call_llm(system, prompt, max_tokens=4000)
+    return _extract_json(raw) or pv
 
 def translate_pv_ar_ifrb(client: str, pv: dict) -> dict:
     """Translate PV to Arabic using IFRB glossary constraints and JSON-shape guarantees."""

@@ -21,8 +21,14 @@ import {
   Image as ImageIcon,
   StickyNote,
   Table2,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  PendingImageCard,
+  StreamingImageCard,
+  ImageAnalysisSummary,
+} from '@/components/workflow/extraction-progress-banner';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -397,8 +403,29 @@ function ImageCard({
 
 // ─── main component ──────────────────────────────────────────────────────────
 
+function isImagePending(image: any) {
+  return image?.status === 'pending';
+}
+
+function isImageStreaming(image: any) {
+  return image?.status === 'streaming';
+}
+
+function isImageDone(image: any) {
+  return image?.status === 'done';
+}
+
 export function ExtractStep() {
-  const { slides, updateSlide, deleteSlide, setCurrentStep, agendaItems } = useWorkflow();
+  const {
+    slides,
+    updateSlide,
+    deleteSlide,
+    setCurrentStep,
+    agendaItems,
+    imageExtraction,
+    runSingleImageAnalysis,
+    isImageAnalyzing,
+  } = useWorkflow();
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(slides[0]?.id || null);
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
 
@@ -462,8 +489,16 @@ export function ExtractStep() {
     (slide?.charts?.length ?? 0) > 0 ||
     (slide?.images?.length ?? 0) > 0;
 
+  const pendingImagesOnSlide = (slide: (typeof slides)[0]) =>
+    (slide.images || []).filter(img => isImagePending(img)).length;
+
+  const streamingImagesOnSlide = (slide: (typeof slides)[0]) =>
+    (slide.images || []).filter(img => isImageStreaming(img)).length;
+
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto space-y-4">
+      <ImageAnalysisSummary imageExtraction={imageExtraction} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* ── Slide list ── */}
@@ -517,8 +552,20 @@ export function ExtractStep() {
                             </Badge>
                           )}
                           {(slide.images?.length ?? 0) > 0 && (
-                            <Badge variant="outline" className="text-xs gap-1">
-                              <ImageIcon className="w-3 h-3" />{slide.images!.length}
+                            <Badge
+                              variant={
+                                pendingImagesOnSlide(slide) > 0 || streamingImagesOnSlide(slide) > 0
+                                  ? 'secondary'
+                                  : 'outline'
+                              }
+                              className="text-xs gap-1"
+                            >
+                              <ImageIcon className="w-3 h-3" />
+                              {streamingImagesOnSlide(slide) > 0
+                                ? 'stream…'
+                                : pendingImagesOnSlide(slide) > 0
+                                  ? `${pendingImagesOnSlide(slide)}/${slide.images!.length}…`
+                                  : slide.images!.length}
                             </Badge>
                           )}
                         </div>
@@ -678,17 +725,100 @@ export function ExtractStep() {
                   {/* ── Image / AI charts ── */}
                   {(selectedSlide.images?.length ?? 0) > 0 && (
                     <section>
-                      <SectionTitle icon={<ImageIcon className="w-4 h-4" />} title={`Images analysées (${selectedSlide.images!.length})`} />
+                      <SectionTitle
+                        icon={<ImageIcon className="w-4 h-4" />}
+                        title={`Images analysées (${selectedSlide.images!.length})`}
+                      />
                       <div className="space-y-4 mt-3">
-                        {selectedSlide.images!.map((img, i) => (
-                          <ImageCard
-                            key={i}
-                            image={img}
-                            index={i}
-                            editable={editMode[selectedSlide.id]}
-                            onImageChange={image => handleImageChange(selectedSlide.id, i, image)}
-                          />
-                        ))}
+                        {selectedSlide.images!.map((img, i) => {
+                          const analyzing = selectedSlide
+                            ? isImageAnalyzing(selectedSlide.slideNumber, i)
+                            : false;
+                          const streaming = isImageStreaming(img) || analyzing;
+
+                          if (streaming) {
+                            return (
+                              <StreamingImageCard
+                                key={i}
+                                index={i}
+                                streamText={String(img?.streamText || '')}
+                                statusMessage={String(img?.streamStatus || '')}
+                                starting={!img?.streamText}
+                              />
+                            );
+                          }
+
+                          if (isImagePending(img)) {
+                            return (
+                              <PendingImageCard
+                                key={i}
+                                index={i}
+                                canAnalyze={!!imageExtraction.token}
+                                onAnalyze={() =>
+                                  runSingleImageAnalysis(selectedSlide.slideNumber, i)
+                                }
+                              />
+                            );
+                          }
+
+                          if (isImageDone(img)) {
+                            return (
+                              <div key={i} className="space-y-2">
+                                <ImageCard
+                                  image={img}
+                                  index={i}
+                                  editable={editMode[selectedSlide.id]}
+                                  onImageChange={image =>
+                                    handleImageChange(selectedSlide.id, i, image)
+                                  }
+                                />
+                                <div className="flex justify-end">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-2"
+                                    disabled={isImageAnalyzing(selectedSlide.slideNumber, i)}
+                                    onClick={() =>
+                                      runSingleImageAnalysis(selectedSlide.slideNumber, i)
+                                    }
+                                  >
+                                    <RotateCcw className="w-4 h-4" />
+                                    Ré-analyser cette image
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          if (img?.status === 'error') {
+                            return (
+                              <div key={i} className="space-y-2">
+                                <div className="p-4 border border-destructive/40 rounded-xl bg-destructive/5 text-sm text-destructive">
+                                  Erreur image {i + 1} : {img.error || img.description}
+                                </div>
+                                <PendingImageCard
+                                  index={i}
+                                  canAnalyze={!!imageExtraction.token}
+                                  onAnalyze={() =>
+                                    runSingleImageAnalysis(selectedSlide.slideNumber, i)
+                                  }
+                                />
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <ImageCard
+                              key={i}
+                              image={img}
+                              index={i}
+                              editable={editMode[selectedSlide.id]}
+                              onImageChange={image =>
+                                handleImageChange(selectedSlide.id, i, image)
+                              }
+                            />
+                          );
+                        })}
                       </div>
                     </section>
                   )}
@@ -750,9 +880,9 @@ export function ExtractStep() {
         <Button variant="outline" onClick={() => setCurrentStep('upload')} className="gap-2">
           <ArrowLeft className="w-4 h-4" />Retour
         </Button>
-        <Button onClick={() => setCurrentStep('slide-analysis')} className="gap-2">
-          Analyser les Slides<ArrowRight className="w-4 h-4" />
-        </Button>
+      <Button onClick={() => setCurrentStep('agenda-analysis')} className="gap-2">
+        Analyse par Ordre du Jour <ArrowRight className="w-4 h-4" />
+      </Button>
       </div>
     </div>
   );

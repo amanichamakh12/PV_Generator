@@ -5,290 +5,153 @@ import { useDropzone } from 'react-dropzone';
 import { useWorkflow } from '@/contexts/workflow-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Upload, Presentation, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { ImageAnalysisSummary } from '@/components/workflow/extraction-progress-banner';
+import {
+  Upload,
+  Presentation,
+  AlertCircle,
+  CheckCircle2,
+  ArrowRight,
+  FileText,
+  Table2,
+  BarChart2,
+  ImageIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Slide, AgendaItem, PVDocument } from '@/types/pv-generator';
+import type { PVDocument } from '@/types/pv-generator';
+import { getApiBaseUrl, mapRawSlidesToWorkflow } from '@/lib/pptx-import';
 
-// Mock function to simulate PowerPoint extraction
-const mockExtractPowerPoint = async (file: File): Promise<{ slides: Slide[]; agendaItems: AgendaItem[] }> => {
-  await new Promise(resolve => setTimeout(resolve, 2000));
-
-  const mockSlides: Slide[] = [
-    {
-      id: 'slide-1',
-      slideNumber: 1,
-      title: 'Introduction - Contexte du Comité',
-      content: 'Présentation du contexte général du comité des risques et des objectifs de la réunion.',
-      contentBlocks: ['Présentation du contexte général du comité des risques et des objectifs de la réunion.'],
-      tables: [],
-      charts: [],
-      images: [],
-      notes: null,
-      extractedContent: 'Le comité des risques se réunit pour examiner les indicateurs clés de performance et les risques identifiés au cours du trimestre.',
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      agendaItemId: 'agenda-1'
-    },
-    {
-      id: 'slide-2',
-      slideNumber: 2,
-      title: 'Risques Opérationnels',
-      content: 'Analyse des risques opérationnels identifiés.',
-      contentBlocks: ['Analyse des risques opérationnels identifiés.'],
-      tables: [],
-      charts: [],
-      images: [],
-      notes: null,
-      extractedContent: 'Les risques opérationnels majeurs incluent: défaillance des systèmes IT, erreurs de traitement, et non-conformité réglementaire.',
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      agendaItemId: 'agenda-2'
-    },
-    {
-      id: 'slide-3',
-      slideNumber: 3,
-      title: 'Plan de Mitigation',
-      content: 'Stratégies de mitigation proposées.',
-      contentBlocks: ['Stratégies de mitigation proposées.'],
-      tables: [],
-      charts: [],
-      images: [],
-      notes: null,
-      extractedContent: 'Plan de mitigation incluant: renforcement des contrôles internes, formation du personnel, et mise à jour des procédures.',
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      agendaItemId: 'agenda-2'
-    },
-    {
-      id: 'slide-4',
-      slideNumber: 4,
-      title: 'Risques Financiers',
-      content: 'Évaluation des risques financiers.',
-      contentBlocks: ['Évaluation des risques financiers.'],
-      tables: [],
-      charts: [],
-      images: [],
-      notes: null,
-      extractedContent: 'Analyse des risques de marché, risques de crédit et risques de liquidité avec leurs impacts potentiels.',
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      agendaItemId: 'agenda-3'
-    },
-    {
-      id: 'slide-5',
-      slideNumber: 5,
-      title: 'Conclusions et Actions',
-      content: 'Synthèse et prochaines étapes.',
-      contentBlocks: ['Synthèse et prochaines étapes.'],
-      tables: [],
-      charts: [],
-      images: [],
-      notes: null,
-      extractedContent: 'Récapitulatif des décisions prises et des actions à entreprendre avant le prochain comité.',
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      agendaItemId: 'agenda-4'
-    }
-  ];
-
-  const mockAgendaItems: AgendaItem[] = [
-    {
-      id: 'agenda-1',
-      title: 'Introduction et Contexte',
-      order: 1,
-      slides: mockSlides.filter(s => s.agendaItemId === 'agenda-1'),
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      notes: []
-    },
-    {
-      id: 'agenda-2',
-      title: 'Risques Opérationnels et Mitigation',
-      order: 2,
-      slides: mockSlides.filter(s => s.agendaItemId === 'agenda-2'),
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      notes: []
-    },
-    {
-      id: 'agenda-3',
-      title: 'Risques Financiers',
-      order: 3,
-      slides: mockSlides.filter(s => s.agendaItemId === 'agenda-3'),
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      notes: []
-    },
-    {
-      id: 'agenda-4',
-      title: 'Conclusions et Plan d\'Action',
-      order: 4,
-      slides: mockSlides.filter(s => s.agendaItemId === 'agenda-4'),
-      analysis: '',
-      isAnalyzed: false,
-      isValidated: false,
-      notes: []
-    }
-  ];
-
-  return { slides: mockSlides, agendaItems: mockAgendaItems };
-};
+type UploadPhase = 'idle' | 'parsing' | 'ready' | 'error';
 
 export function UploadStep() {
-  const { setSlides, setAgendaItems, setDocument, setCurrentStep, setProcessing, isProcessing } = useWorkflow();
+  const {
+    slides,
+    setSlides,
+    setAgendaItems,
+    setDocument,
+    setCurrentStep,
+    setProcessing,
+    prepareImageExtraction,
+    imageExtraction,
+  } = useWorkflow();
+
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [phase, setPhase] = useState<UploadPhase>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [stats, setStats] = useState({
+    slides: 0,
+    charts: 0,
+    tables: 0,
+    pendingImages: 0,
+  });
 
-const onDrop = useCallback(async (acceptedFiles: File[]) => {
-  console.log('🟡 onDrop déclenché', acceptedFiles);
-  
-  const file = acceptedFiles[0];
-  if (!file) {
-    console.log('❌ Aucun fichier reçu');
-    return;
-  }
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      const file = acceptedFiles[0];
+      if (!file) return;
 
-  console.log('📁 Fichier:', file.name, file.type, file.size);
+      const validTypes = [
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ];
+      if (
+        !validTypes.includes(file.type) &&
+        !file.name.endsWith('.pptx') &&
+        !file.name.endsWith('.ppt')
+      ) {
+        setPhase('error');
+        setErrorMessage('Veuillez importer un fichier PowerPoint (.ppt ou .pptx)');
+        return;
+      }
 
-  // Validation type
-  const validTypes = [
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-  ];
-  if (!validTypes.includes(file.type) && !file.name.endsWith('.pptx') && !file.name.endsWith('.ppt')) {
-    console.log('❌ Type invalide:', file.type);
-    setUploadStatus('error');
-    setErrorMessage('Veuillez importer un fichier PowerPoint (.ppt ou .pptx)');
-    return;
-  }
+      setUploadedFile(file);
+      setPhase('parsing');
+      setProcessing(true);
+      setErrorMessage('');
 
-  setUploadedFile(file);
-  setUploadStatus('uploading');
-  setProcessing(true);
- try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
-    console.log('🌐 Appel API vers:', `${apiUrl}/api/parse-pptx`);
+      try {
+        const apiUrl = getApiBaseUrl();
+        const formData = new FormData();
+        formData.append('file', file);
 
-    const formData = new FormData();
-    formData.append('file', file);
+        const res = await fetch(`${apiUrl}/api/parse-pptx/fast`, {
+          method: 'POST',
+          body: formData,
+        });
 
-    const res = await fetch(`${apiUrl}/api/parse-pptx`, {
-      method: 'POST',
-      body: formData,
-    });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || `API error ${res.status}`);
+        }
 
-    console.log('📡 Réponse reçue, status:', res.status, res.ok);
+        const data = await res.json();
+        const rawSlides: any[] = data.slides || [];
+        const { slides: mappedSlides, agendaItems } = mapRawSlidesToWorkflow(rawSlides);
 
-    if (!res.ok) {
-      const txt = await res.text();
-      console.error('❌ Erreur API:', res.status, txt);
-      throw new Error(txt || `API error ${res.status}`);
-    }
+        const chartCount = rawSlides.reduce(
+          (acc, s) => acc + (s.graphiques?.length || 0),
+          0,
+        );
+        const tableCount = rawSlides.reduce(
+          (acc, s) => acc + (s.tableaux?.length || 0),
+          0,
+        );
+        const pendingImages = data.nb_images_pending || 0;
 
-    const data = await res.json();
-    console.log('✅ Data reçue:', data);
+        setStats({
+          slides: rawSlides.length,
+          charts: chartCount,
+          tables: tableCount,
+          pendingImages,
+        });
 
-      const rawSlides: any[] = data.slides || [];
+        setSlides(mappedSlides);
+        setAgendaItems(agendaItems);
 
-      const agendaMap = new Map<string, string>();
+        const newDocument: PVDocument = {
+          id: `pv-${Date.now()}`,
+          title: `PV Comité des Risques - ${new Date().toLocaleDateString('fr-FR')}`,
+          date: new Date(),
+          committeeType: 'Comité des Risques',
+          participants: [],
+          agendaItems,
+          draftContent: '',
+          finalContent: '',
+          status: 'draft',
+          translations: {},
+        };
+        setDocument(newDocument);
 
-const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
-  const agendaTitle = (s['ordre du jour'] || s['ordre_du_jour'] || '').toString().trim();
-  let agendaId = '';
-  if (agendaTitle) {
-    if (!agendaMap.has(agendaTitle)) agendaMap.set(agendaTitle, `agenda-${agendaMap.size + 1}`);
-    agendaId = agendaMap.get(agendaTitle) as string;
-  }
+        setPhase('ready');
+        setProcessing(false);
 
-  const title = (s.titre || s.title || '').toString();
-  const contentField = s.contenu || s.content || [];
-  const content = Array.isArray(contentField) ? contentField.join('\n') : (contentField || '').toString();
-  const extractedContent = (s.texte || s.extracted_text || content).toString();
-
-  return {
-    id: `slide-${idx + 1}`,
-    slideNumber: s.index || s.slide_index || idx + 1,
-    title,
-    content,
-    extractedContent,
-    analysis: '',
-    isAnalyzed: false,
-    isValidated: false,
-    agendaItemId: agendaId,
-
-    // ✅ Champs manquants — ajouter ces lignes :
-    contentBlocks: Array.isArray(s.contenu) ? s.contenu : [],
-    tables: s.tableaux || [],
-    charts: s.graphiques || [],
-    images: s.images || [],
-    notes: s.notes || null,
-  } as Slide;
-});
-
-      const mappedAgendaItems: AgendaItem[] = Array.from(agendaMap.keys()).map((title, i) => {
-        const id = `agenda-${i + 1}`;
-        return {
-          id,
-          title,
-          order: i + 1,
-          slides: mappedSlides.filter(s => s.agendaItemId === id),
-          analysis: '',
-          isAnalyzed: false,
-          isValidated: false,
-          notes: [],
-        } as AgendaItem;
-      });
-
-      setSlides(mappedSlides);
-      setAgendaItems(mappedAgendaItems);
-
-      const newDocument: PVDocument = {
-        id: `pv-${Date.now()}`,
-        title: `PV Comité des Risques - ${new Date().toLocaleDateString('fr-FR')}`,
-        date: new Date(),
-        committeeType: 'Comité des Risques',
-        participants: [],
-        agendaItems: mappedAgendaItems,
-        draftContent: '',
-        finalContent: '',
-        status: 'draft',
-        translations: {},
-      };
-      setDocument(newDocument);
-
-      setUploadStatus('success');
-  } catch (err: any) {
-    // Distinguer erreur réseau vs erreur API
-    if (err instanceof TypeError) {
-      console.error('🔌 Erreur RÉSEAU (API injoignable):', err.message);
-      setErrorMessage(`Serveur injoignable sur ${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000'} — vérifiez que le backend tourne`);
-    } else {
-      console.error('💥 Erreur API:', err.message);
-      setErrorMessage(err?.message || 'Erreur lors du traitement du fichier');
-    }
-    setUploadStatus('error');
-  } finally {
-    setProcessing(false);
-  }
-}, [setSlides, setAgendaItems, setDocument, setProcessing]);
+        if (data.token) {
+          prepareImageExtraction(data.token, pendingImages);
+        }
+      } catch (err: any) {
+        if (err instanceof TypeError) {
+          setErrorMessage(
+            `Serveur injoignable sur ${getApiBaseUrl()} — vérifiez que le backend tourne`,
+          );
+        } else {
+          setErrorMessage(err?.message || 'Erreur lors du traitement du fichier');
+        }
+        setPhase('error');
+        setProcessing(false);
+      }
+    },
+    [setSlides, setAgendaItems, setDocument, setProcessing, prepareImageExtraction],
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       'application/vnd.ms-powerpoint': ['.ppt'],
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx']
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
     },
     multiple: false,
-    disabled: isProcessing
+    disabled: phase === 'parsing',
   });
 
   const handleContinue = () => {
@@ -296,7 +159,7 @@ const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-4xl mx-auto space-y-6">
       <Card className="border-2 border-dashed border-primary/30 bg-card/50 backdrop-blur">
         <CardHeader className="text-center pb-4">
           <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
@@ -304,7 +167,7 @@ const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
           </div>
           <CardTitle className="text-2xl">Importer le Support de Comité</CardTitle>
           <CardDescription className="text-base">
-            Glissez-déposez votre présentation PowerPoint ou cliquez pour sélectionner
+            Extraction immédiate du texte et des tableaux — analyse image par image, à la demande
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -313,19 +176,21 @@ const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
             className={cn(
               'border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all',
               isDragActive && 'border-primary bg-primary/5 scale-[1.02]',
-              !isDragActive && uploadStatus === 'idle' && 'border-border hover:border-primary/50 hover:bg-muted/50',
-              uploadStatus === 'uploading' && 'border-info bg-info/5',
-              uploadStatus === 'success' && 'border-accent bg-accent/5',
-              uploadStatus === 'error' && 'border-destructive bg-destructive/5',
-              isProcessing && 'pointer-events-none opacity-70'
+              phase === 'idle' && 'border-border hover:border-primary/50 hover:bg-muted/50',
+              phase === 'parsing' && 'border-info bg-info/5',
+              phase === 'ready' && 'border-accent bg-accent/5',
+              phase === 'error' && 'border-destructive bg-destructive/5',
+              phase === 'parsing' && 'pointer-events-none opacity-80',
             )}
           >
             <input {...getInputProps()} />
-            
-            {uploadStatus === 'idle' && (
+
+            {phase === 'idle' && (
               <div className="space-y-4">
                 <div className="mx-auto w-20 h-20 rounded-full bg-muted flex items-center justify-center">
-                  <Upload className={cn('w-10 h-10 text-muted-foreground', isDragActive && 'text-primary')} />
+                  <Upload
+                    className={cn('w-10 h-10 text-muted-foreground', isDragActive && 'text-primary')}
+                  />
                 </div>
                 <div>
                   <p className="text-lg font-medium text-foreground">
@@ -335,40 +200,38 @@ const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
                     ou <span className="text-primary font-medium">cliquez pour parcourir</span>
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Formats acceptés: .ppt, .pptx (max 50MB)
-                </p>
+                <p className="text-xs text-muted-foreground">Formats acceptés: .ppt, .pptx</p>
               </div>
             )}
 
-            {uploadStatus === 'uploading' && (
+            {phase === 'parsing' && (
               <div className="space-y-4">
                 <div className="mx-auto w-20 h-20 rounded-full bg-info/20 flex items-center justify-center">
                   <div className="w-10 h-10 border-4 border-info border-t-transparent rounded-full animate-spin" />
                 </div>
                 <div>
-                  <p className="text-lg font-medium text-foreground">Traitement en cours...</p>
+                  <p className="text-lg font-medium text-foreground">Extraction du contenu texte…</p>
                   <p className="text-sm text-muted-foreground mt-1">{uploadedFile?.name}</p>
-                </div>
-                <div className="w-48 mx-auto h-2 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-info rounded-full animate-pulse" style={{ width: '70%' }} />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Le texte et les tableaux sont prêts. Analysez chaque image individuellement à l&apos;étape suivante.
+                  </p>
                 </div>
               </div>
             )}
 
-            {uploadStatus === 'success' && (
+            {phase === 'ready' && (
               <div className="space-y-4">
                 <div className="mx-auto w-20 h-20 rounded-full bg-accent/20 flex items-center justify-center">
                   <CheckCircle2 className="w-10 h-10 text-accent" />
                 </div>
                 <div>
-                  <p className="text-lg font-medium text-foreground">Fichier importé avec succès!</p>
+                  <p className="text-lg font-medium text-foreground">Contenu extrait — prêt à consulter</p>
                   <p className="text-sm text-muted-foreground mt-1">{uploadedFile?.name}</p>
                 </div>
               </div>
             )}
 
-            {uploadStatus === 'error' && (
+            {phase === 'error' && (
               <div className="space-y-4">
                 <div className="mx-auto w-20 h-20 rounded-full bg-destructive/20 flex items-center justify-center">
                   <AlertCircle className="w-10 h-10 text-destructive" />
@@ -379,9 +242,9 @@ const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
                 </div>
                 <Button
                   variant="outline"
-                  onClick={(e) => {
+                  onClick={e => {
                     e.stopPropagation();
-                    setUploadStatus('idle');
+                    setPhase('idle');
                     setUploadedFile(null);
                   }}
                 >
@@ -391,16 +254,84 @@ const mappedSlides: Slide[] = rawSlides.map((s, idx) => {
             )}
           </div>
 
-          {uploadStatus === 'success' && (
-            <div className="mt-6 flex justify-center">
-              <Button size="lg" onClick={handleContinue} className="gap-2">
-                Continuer vers l&apos;extraction
-                <ArrowRight className="w-5 h-5" />
-              </Button>
+          {phase === 'ready' && (
+            <div className="mt-6 space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatCard icon={<FileText className="w-4 h-4" />} label="Slides" value={stats.slides} />
+                <StatCard icon={<Table2 className="w-4 h-4" />} label="Tableaux" value={stats.tables} />
+                <StatCard icon={<BarChart2 className="w-4 h-4" />} label="Graphiques natifs" value={stats.charts} />
+                <StatCard icon={<ImageIcon className="w-4 h-4" />} label="Images IA" value={stats.pendingImages} />
+              </div>
+
+              <ImageAnalysisSummary imageExtraction={imageExtraction} className="text-center" />
+
+              {stats.pendingImages > 0 && (
+                <p className="text-xs text-center text-muted-foreground">
+                  {stats.pendingImages} image{stats.pendingImages > 1 ? 's' : ''} en attente — bouton
+                  &laquo;&nbsp;Analyser&nbsp;&raquo; sur chaque image dans l&apos;écran d&apos;extraction.
+                </p>
+              )}
+
+              {slides.length > 0 && (
+                <div className="border rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 bg-muted/40 border-b text-sm font-medium">
+                    Aperçu des slides extraites
+                  </div>
+                  <div className="max-h-48 overflow-auto divide-y">
+                    {slides.slice(0, 8).map(slide => (
+                      <div key={slide.id} className="px-4 py-3 flex items-start gap-3">
+                        <Badge variant="outline" className="shrink-0">
+                          {slide.slideNumber}
+                        </Badge>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{slide.title || 'Sans titre'}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {slide.contentBlocks?.[0] || slide.extractedContent || 'Contenu disponible'}
+                          </p>
+                        </div>
+                        {(slide.images?.length ?? 0) > 0 && (
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            {slide.images?.some(img => img?.status === 'streaming')
+                              ? 'stream…'
+                              : slide.images?.some(img => img?.status === 'pending')
+                                ? `${slide.images.length} img`
+                                : `${slide.images?.length} img`}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row justify-center gap-3">
+                <Button size="lg" onClick={handleContinue} className="gap-2">
+                  Voir l&apos;extraction
+                  <ArrowRight className="w-5 h-5" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="p-3 rounded-lg border bg-card text-center">
+      <div className="flex justify-center text-muted-foreground mb-1">{icon}</div>
+      <p className="text-lg font-semibold">{value}</p>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 """PPTX parser with native chart extraction and image analysis pipeline."""
 
+import json
 import logging
 from PIL import Image
 import io
@@ -7,9 +8,9 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from typing import Optional
 import re
-from backend.Graph.PipelineMin import extract_chart_with_ollama, extract_chart
+from backend.Graph.PipelineMin import extract_chart_with_groq, extract_chart_with_ollama, extract_chart
 # from chart_ocr_extractor import describe_image  # ancien pipeline LLaVA/ocr
-from backend.Graph.MeilleurVersionGraph import describe_image_groq
+from backend.Graph.MeuilleurVersionGraph import describe_image_groq
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,8 @@ AGENDA_TITLE_HINTS = (
 
 AGENDA_ITEMS_TO_IGNORE = (
 )
+
+_pending_images: dict[str, list[dict]] = {}
 
 
 def _normalize_text(text: Optional[str]) -> str:
@@ -372,7 +375,113 @@ def _build_chart_summary(title: str, chart_type: str,
         pass
 
     return "\n".join(lines)
+def _extract_images_fast(slide) -> tuple[list[dict], list[bytes]]:
+    """
+    Retourne :
+    - images_placeholder : liste de dicts avec juste {"status": "pending"}
+    - blobs : liste des bytes bruts pour analyse ultérieure
+    """
+    placeholders = []
+    blobs = []
 
+    for shape in slide.shapes:
+        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            blobs.append(shape.image.blob)
+            placeholders.append({"status": "pending"})
+        elif shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            sub_ph, sub_blobs = _extract_images_from_group(shape.shapes)
+            placeholders.extend(sub_ph)
+            blobs.extend(sub_blobs)
+
+    return placeholders, blobs
+
+def store_pending_images(token: str, images: list[dict]) -> None:
+    _pending_images[token] = images
+
+def get_pending_images(token: str) -> list[dict]:
+    return _pending_images.pop(token, [])  # pop = auto-nettoyage après lecture
+
+
+def get_pending_image_blob(token: str, slide_index: int, image_index: int) -> bytes | None:
+    for img in _pending_images.get(token, []):
+        if img.get("slide_index") == slide_index and img.get("image_index") == image_index:
+            return img.get("blob")
+    return None
+
+
+def iter_image_analysis_events(slide_index: int, image_index: int, blob: bytes):
+    try:
+        # Un seul appel Groq (pas de streaming)
+        result = extract_chart_with_groq(blob)
+
+        # Envoie le résultat en un seul chunk
+        yield {
+            "type": "image_chunk",
+            "slide_index": slide_index,
+            "image_index": image_index,
+            "delta": json.dumps(result, ensure_ascii=False),
+        }
+
+        yield {
+            "type": "image_done",
+            "slide_index": slide_index,
+            "image_index": image_index,
+            "result": result,
+        }
+
+    except Exception as e:
+        yield {
+            "type": "image_error",
+            "slide_index": slide_index,
+            "image_index": image_index,
+            "error": str(e),
+        }
+
+def clear_pending_images(doc_id: str) -> None:
+    _pending_images.pop(doc_id, None)
+
+def parse_pptx_fast(file_path: str, doc_id: str) -> dict:
+    prs = Presentation(file_path)
+    slides_data = []
+    all_pending = []
+
+    for idx, slide in enumerate(prs.slides):
+        img_placeholders, blobs = _extract_images_fast(slide)
+
+        slide_dict = {
+            "index":        idx + 1,
+            "titre":        _extract_title(slide),
+            "ordre du jour": None,
+            "contenu":      _extract_content(slide),
+            "tableaux":     _extract_tables(slide),
+            "graphiques":   _extract_charts(slide),   # natifs = instantané
+            "images":       img_placeholders,          # juste {"status":"pending"}
+            "notes":        _extract_notes(slide),
+            "est_vide":     False,
+        }
+
+        # Stocker les blobs séparément pour le stream
+        for img_idx, blob in enumerate(blobs):
+            all_pending.append({
+                "slide_index": idx + 1,
+                "image_index": img_idx,
+                "blob":        blob,
+            })
+
+        slides_data.append(slide_dict)
+
+    slides_data = _assign_agenda_to_slides(slides_data)
+
+    # Stocker en mémoire pour le stream SSE
+    _pending_images[doc_id] = all_pending
+
+    return {
+        "nb_slides":            len(slides_data),
+        "nb_slides_vides":      sum(1 for s in slides_data if s["est_vide"]),
+        "nb_graphiques_natifs": sum(len(s["graphiques"]) for s in slides_data),
+        "nb_images_pending":    len(all_pending),
+        "slides":               slides_data,
+    }
 
 def parse_pptx(file_path: str) -> dict:
     prs = Presentation(file_path)

@@ -25,6 +25,10 @@ def validate_uploaded_pptx(content_type: str | None, size_bytes: int) -> None:
 def parse_pptx_file(tmp_path: str) -> dict:
     return parse_pptx(tmp_path)
 
+def parse_pptx_file_fast(tmp_path:str) -> dict:
+    """Version plus rapide qui ne fait que les graphes, pour les slides d'analyse."""
+    return parse_pptx_fast(tmp_path, only_charts=True)
+
 
 def remove_temp_file(path: str) -> None:
     if path and os.path.exists(path):

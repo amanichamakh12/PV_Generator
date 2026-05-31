@@ -4,7 +4,21 @@ from pydantic import BaseModel
 from sqlalchemy import Column, Integer, DateTime, Text
 from sqlalchemy.sql import func
 from backend.db_connection import Base
+from pydantic import BaseModel
+from typing import List
 
+class Point(BaseModel):
+    id: str
+    titre: str
+    discussion: str
+    conclusion: str
+
+class PV(BaseModel):
+    titre: str
+    date: str
+    introduction: str
+    ordreJour: List[str]
+    points: List[Point]
 class Note(BaseModel):
     participant: str
     content: str
@@ -15,8 +29,8 @@ class MergeRequest(BaseModel):
     notes: list[Note]
 
 class TranslateRequest(BaseModel):
-    pv: dict
-    target_language: str
+    pv: str
+    target_language: str  
 
 class ExportRequest(BaseModel):
     pv: dict
@@ -78,3 +92,12 @@ class PVDocument(Base):
         onupdate=func.now()
     )
     tableaux = Column(Text)
+
+
+class ReformulateRequest(BaseModel):
+    content: str
+
+
+class ReformulateResponse(BaseModel):
+    text: str
+
