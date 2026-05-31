@@ -4,7 +4,7 @@ from groq import Groq
 
 GROQ_API_KEY = os.environ.get(
     "GROQ_API_KEY",
-    "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"
+    "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"
 )
 
 

@@ -3,7 +3,6 @@
 import { useWorkflow } from '@/contexts/workflow-context';
 import { UploadStep } from './steps/upload-step';
 import { ExtractStep } from './steps/extract-step';
-import { SlideAnalysisStep } from './steps/slide-analysis-step';
 import { AgendaAnalysisStep } from './steps/agenda-analysis-step';
 import { DraftGenerationStep } from './steps/draft-generation-step';
 import { MeetingNotesStep } from './steps/meeting-notes-step';
@@ -19,8 +18,6 @@ export function WorkflowContent() {
         return <UploadStep />;
       case 'extract':
         return <ExtractStep />;
-      case 'slide-analysis':
-        return <SlideAnalysisStep />;
       case 'agenda-analysis':
         return <AgendaAnalysisStep />;
       case 'draft-generation':

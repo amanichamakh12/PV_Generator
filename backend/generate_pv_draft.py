@@ -20,7 +20,7 @@ import requests
 
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:0.6b")
 
 SLIDE_PARAGRAPH_SYSTEM = """
 Tu es un rédacteur de procès-verbaux officiels pour un comité bancaire.
@@ -64,7 +64,7 @@ Contraintes :
  
 Format attendu :
 {
-  "analyse": "paragraphe d analyse consolidee sur l ensemble des slides de cet ordre du jour",
+  "analyse": "paragraphe d analyse consolidee sur l ensemble des slides de cet ordre du jour. Met en avant les constats, tendances, alertes, decisions implicites et suites a donner.",
   "constats": ["constat 1", "constat 2"],
   "risques": ["risque 1", "risque 2"],
   "actions_suggerees": ["action 1", "action 2"]
@@ -77,9 +77,10 @@ def _post_ollama_json(system: str, prompt: str, max_tokens: int = 1200) -> dict[
         "prompt": (
             f"[INST] <<SYS>>\n{system}\n<</SYS>>\n\n"
             f"{prompt}\n\n"
-            "Reponds en paragraphe professionnelle bien redigé. [/INST]"
+            "Retourne UNIQUEMENT le JSON demandé, sans texte avant ni après. [/INST]"
         ),
         "stream": False,
+        "format": "json",  # ← force Ollama à sortir du JSON
         "options": {
             "temperature": 0.1,
             "num_predict": max_tokens,
@@ -313,22 +314,42 @@ def build_agenda_analysis_input(agenda_group: dict[str, any]) -> str:
         slides_list = [slides_list]
 
     slides = ", ".join(
-        f"{slide.get('slide_index')}:{slide.get('slide_title') or 'Sans titre'}"
+        f"{slide.get('index')}:{slide.get('titre') or 'Sans titre'}"
         for slide in slides_list
     )
-
-    # Extraire depuis chaque slide, pas depuis agenda_group
+    images_text = "\n".join(
+    f"- Graphique type={img.get('type', 'inconnu')} titre={img.get('titre', '')} "
+    f"categories={img.get('categories', [])} "
+    f"series={img.get('series', [])} "
+    f"observations={img.get('observations', [])}"
+    for slide in slides_list
+    for img in slide.get("images", [])
+    if img.get("titre") or img.get("observations") or img.get("series")
+)
+    # Contenu textuel des slides
     paragraphes = "\n\n".join(
-        slide.get("paragraphe", "")
+        "\n".join(slide.get("contenu", []))
         for slide in slides_list
-        if slide.get("paragraphe")
+        if slide.get("contenu")
     )
 
+    # Tableaux formatés
+    tableaux_text = ""
+    for slide in slides_list:
+        for table in slide.get("tableaux", []):
+            lignes = table.get("lignes", [])
+            if lignes:
+                tableaux_text += "\n" + "\n".join(
+                    " | ".join(str(cell) for cell in row)
+                    for row in lignes
+                )
+
+    # Points clés et actions (si présents)
     points_cles = "\n".join(
         f"- {item}"
         for slide in slides_list
         for item in slide.get("points_cles", [])
-    )[:12]  # limite approximative
+    )
 
     actions = "\n".join(
         f"- {item}"
@@ -339,7 +360,9 @@ def build_agenda_analysis_input(agenda_group: dict[str, any]) -> str:
     return (
         f"Ordre du jour: {agenda_group.get('ordre_du_jour')}\n"
         f"Slides couvertes: {slides or 'aucune'}\n\n"
-        f"Paragraphes consolides:\n{paragraphes or 'Aucun paragraphe'}\n\n"
+        f"Contenu:\n{paragraphes or 'Aucun contenu'}\n\n"
+        f"Tableaux:\n{tableaux_text or 'Aucun tableau'}\n\n"
+        f"Graphiques analysés:\n{images_text or 'Aucun graphique analysé'}\n\n"
         f"Points cles:\n{points_cles or '- Aucun'}\n\n"
         f"Elements actionnables:\n{actions or '- Aucun'}"
     )
@@ -347,9 +370,29 @@ def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> 
     analysis_input = build_agenda_analysis_input(agenda_group)
     slides_list = agenda_group.get("slides", [])
 
+    print("\n" + "="*60)
+    print(f"📋 ORDRE DU JOUR: {agenda_group.get('ordre_du_jour')}")
+    print(f"📊 SLIDES: {len(slides_list)}")
+    print(f"🤖 USE_LLM: {use_llm}")
+    print(f"\n📝 INPUT ANALYSE:\n{analysis_input}")
+    print("="*60)
+
     if use_llm:
+        print("🚀 Appel LLM...")
         llm_result = _post_ollama_json(AGENDA_ANALYSIS_SYSTEM, analysis_input, max_tokens=1400)
+        
+        print(f"\n📤 RÉPONSE LLM RAW: {llm_result}")
+        print(f"📤 TYPE: {type(llm_result)}")
+        
+        if llm_result:
+            print(f"📤 CLÉS: {llm_result.keys() if isinstance(llm_result, dict) else 'pas un dict'}")
+            print(f"📤 'analyse' présent: {'analyse' in llm_result if isinstance(llm_result, dict) else 'N/A'}")
+            print(f"📤 VALEUR 'analyse': {llm_result.get('analyse') if isinstance(llm_result, dict) else 'N/A'}")
+        else:
+            print("❌ LLM a retourné None/vide")
+
         if llm_result and llm_result.get("analyse"):
+            print("✅ Utilisation résultat LLM")
             return {
                 "ordre_du_jour": agenda_group.get("ordre_du_jour"),
                 "input_analyse": analysis_input,
@@ -358,30 +401,30 @@ def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> 
                     item
                     for slide in slides_list
                     for item in slide.get("points_cles", [])
-                ][:8],                
+                ][:8],
                 "risques": llm_result.get("risques", []),
                 "actions_suggerees": [
                     item
                     for slide in slides_list
                     for item in slide.get("elements_actionnables", [])
-                ][:8],                
+                ][:8],
                 "generation_mode": "llm",
             }
+        else:
+            print("⚠️ Fallback heuristique")
 
     return {
         "ordre_du_jour": agenda_group.get("ordre_du_jour"),
         "input_analyse": analysis_input,
         "analyse": (
             "Les paragraphes rattaches a cet ordre du jour ont ete consolides "
-            "pour alimenter une analyse transverse. Les constats, risques et suites "
-            "a donner peuvent desormais etre traites par un second moteur analytique."
+            "pour alimenter une analyse transverse."
         ),
         "constats": agenda_group.get("points_cles", [])[:8],
         "risques": [],
         "actions_suggerees": agenda_group.get("elements_actionnables", [])[:8],
         "generation_mode": "heuristic",
     }
-
 
 
 
