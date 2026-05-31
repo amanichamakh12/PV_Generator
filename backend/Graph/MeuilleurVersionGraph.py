@@ -1,15 +1,16 @@
 import base64
 import os
+from dotenv import load_dotenv
 from groq import Groq
 
-GROQ_API_KEY = os.environ.get(
-    "GROQ_API_KEY",
-    "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"
-)
+
+
+load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
 def _get_groq_client():
-    return Groq(api_key=GROQ_API_KEY)
+    return Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 def describe_image_groq(image_bytes: bytes, model: str = "meta-llama/llama-4-scout-17b-16e-instruct") -> str:
