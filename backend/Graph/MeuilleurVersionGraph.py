@@ -6,7 +6,7 @@ from groq import Groq
 load_dotenv()  # ← charge le .env dans l'environnement
 
 def _get_groq_client():
-    return 1 #Groq(api_key=os.getenv("GROQ_API_KEY"))
+    return Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 def describe_image_groq(image_bytes: bytes, model: str = "meta-llama/llama-4-scout-17b-16e-instruct") -> str:
