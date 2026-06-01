@@ -33,6 +33,8 @@ services:
       OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-qwen2.5vl:3b-q4_K_M}
       PYTHONUNBUFFERED: "1"
       GROQ_API_KEY: ${GROQ_API_KEY}
+
+    
     ports:
       - "8000:8000"
     depends_on:
