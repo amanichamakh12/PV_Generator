@@ -32,6 +32,7 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5vl:7b}
       OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-qwen2.5vl:3b-q4_K_M}
       PYTHONUNBUFFERED: "1"
+      GROQ_API_KEY: ${GROQ_API_KEY}
     ports:
       - "8000:8000"
     depends_on:
@@ -58,6 +59,7 @@ services:
     container_name: pv-frontend
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      GROQ_API_KEY: ${GROQ_API_KEY}
     ports:
       - "3000:3000"
     depends_on:
