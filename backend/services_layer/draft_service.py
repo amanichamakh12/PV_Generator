@@ -1,13 +1,13 @@
 """Draft generation and agenda analysis service functions."""
 
-from backend.docX import build_pv_docx, build_pv_request_body
-from backend.generate_pv_draft import (
+from docX import build_pv_docx, build_pv_request_body
+from generate_pv_draft import (
     analyze_agenda_group,
     generate_pv_draft_pipeline,
     generate_slide_paragraph,
 )
-from backend.pptx_parser_chartLlama import parse_pptx
-from backend.Pv_Generator import OLLAMA_MODEL, generate_pv_draft
+from Graph.pptx_parser_chartLlama import parse_pptx
+from Pv_Generator import OLLAMA_MODEL, generate_pv_draft
 
 
 def generate_slide_paragraph_service(slide: dict) -> dict:
@@ -19,7 +19,10 @@ def analyze_agenda_service(agenda_group: dict, use_llm: bool) -> dict:
 
 
 def analyze_agenda_full_service(ordre_du_jour: str, slides: list[dict], use_llm: bool) -> dict:
-    analyzed_slides = [generate_slide_paragraph(slide) for slide in slides]
+    # Injecter l'ordre_du_jour dans chaque slide brute pour que generate_slide_paragraph
+    # produise un paragraphe cohérent (sinon chaque slide dirait "hors ordre du jour")
+    slides_with_odj = [{**s, "ordre_du_jour": ordre_du_jour} for s in slides]
+    analyzed_slides = [generate_slide_paragraph(slide) for slide in slides_with_odj]
     agenda_group = {
         "ordre_du_jour": ordre_du_jour,
         "slides": analyzed_slides,

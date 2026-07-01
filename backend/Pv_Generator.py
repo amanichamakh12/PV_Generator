@@ -773,12 +773,12 @@ def merge_notes_with_pv(pv_draft: dict, notes: list) -> dict:
         if not linked_notes:
             continue
 
-        existing = point.get("remarques", [])
-        nouvelles = [
-            f"{n['participant']} : {n['content']}" if n["participant"] else n["content"]
-            for n in linked_notes
-        ]
-        point["remarques"] = existing + nouvelles
+        notes_text = " ".join([
+            n['content'] for n in linked_notes if n.get('content')
+        ])
+        if notes_text:
+            existing_discussion = (point.get("discussion") or "").strip()
+            point["discussion"] = f"{existing_discussion}\n\n{notes_text}".strip() if existing_discussion else notes_text
 
     return pv_draft
 

@@ -8,12 +8,18 @@ import { DraftGenerationStep } from './steps/draft-generation-step';
 import { MeetingNotesStep } from './steps/meeting-notes-step';
 import { FinalPVStep } from './steps/final-pv-step';
 import { TranslationStep } from './steps/translation-step';
+import { SessionsDashboard } from '@/components/sessions/sessions-dashboard2';
+import { LandingPage } from '@/components/landing/landing-page';
 
 export function WorkflowContent() {
   const { currentStep } = useWorkflow();
 
   const renderStep = () => {
     switch (currentStep) {
+      case 'home':
+        return <LandingPage />;
+      case 'dashboard':
+        return <SessionsDashboard />;
       case 'upload':
         return <UploadStep />;
       case 'extract':
@@ -33,8 +39,10 @@ export function WorkflowContent() {
     }
   };
 
+  const isFullPage = currentStep === 'home';
+
   return (
-    <div className="p-6">
+    <div className={isFullPage ? '' : 'p-6'}>
       {renderStep()}
     </div>
   );

@@ -6,6 +6,5 @@ __all__ = [
 	"merge_service",
 	"parsing_service",
 	"pv_service",
-	"translation_ifsb",
 	"translation_service",
 ]

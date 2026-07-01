@@ -1,5 +1,6 @@
 export function PVRenderer({ content }: { content: string }) {
-const lines = content.replace(/\\n/g, '\n').split(/\r?\n/);
+  const lines = content.replace(/\\n/g, '\n').split(/\r?\n/);
+
   const renderInline = (text: string, key?: number) => {
     const parts = text.split(/(\*\*[^*]+\*\*)/g);
     return (
@@ -14,101 +15,121 @@ const lines = content.replace(/\\n/g, '\n').split(/\r?\n/);
   };
 
   return (
-    <div style={{ fontFamily: "Calibri, sans-serif", fontSize: "11pt", color: "#000", lineHeight: 1.6 }}>
+    <div style={{
+      fontFamily: '"Times New Roman", "Georgia", serif',
+      fontSize: "11pt",
+      color: "#000",
+      lineHeight: 1.75,
+      backgroundColor: "#ffffff",
+      padding: "56px 64px",
+      maxWidth: "760px",
+      margin: "0 auto",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06)",
+    }}>
       {lines.map((rawLine, i) => {
         const line = rawLine.trim();
 
-        if (!line) return <div key={i} style={{ height: "0.5em" }} />;
+        if (!line) return <div key={i} style={{ height: "0.7em" }} />;
 
         // Séparateur ---
-        if (line === "---") {
-          return <hr key={i} style={{ borderTop: "1px solid #ccc", margin: "16px 0" }} />;
-        }
+        if (line === "---") return (
+          <hr key={i} style={{ border: "none", borderTop: "1px solid #888", margin: "18px 0" }} />
+        );
+
+        // Ligne de signature ___
+        if (/^_{10,}$/.test(line)) return (
+          <div key={i} style={{
+            display: "inline-block",
+            width: "200px",
+            borderBottom: "1px solid #000",
+            marginTop: "36px",
+            marginBottom: "4px",
+          }} />
+        );
 
         // # Titre principal
-        if (line.startsWith("# ")) {
-          return (
-            <div key={i}>
-              <h1 style={{
-                textAlign: "center",
-                fontWeight: "bold",
-                fontSize: "18pt",
-                color: "#000",
-                margin: "24px 0 8px",
-              }}>
-                {line.replace("# ", "")}
-              </h1>
-              <hr style={{ borderTop: "2px solid #000", margin: "0 0 16px" }} />
+        if (line.startsWith("# ")) return (
+          <div key={i} style={{ textAlign: "center", margin: "0 0 20px" }}>
+            <div style={{
+              fontWeight: "bold",
+              fontSize: "16pt",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              color: "#000",
+              marginBottom: "10px",
+            }}>
+              {line.replace("# ", "")}
             </div>
-          );
-        }
+            <div style={{ borderBottom: "2.5px solid #000" }} />
+          </div>
+        );
 
         // ## Section
-        if (line.startsWith("## ")) {
-          return (
-            <h2 key={i} style={{
+        if (line.startsWith("## ")) return (
+          <div key={i} style={{ margin: "28px 0 10px" }}>
+            <div style={{
               fontWeight: "bold",
-              fontSize: "14pt",
+              fontSize: "10.5pt",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
               color: "#000",
-              borderLeft: "4px solid #000",
-              paddingLeft: "12px",
-              margin: "20px 0 8px",
+              borderBottom: "1.5px solid #000",
+              paddingBottom: "5px",
             }}>
               {line.replace("## ", "")}
-            </h2>
-          );
-        }
+            </div>
+          </div>
+        );
 
-        // ### Sous-section
-        if (line.startsWith("### ")) {
-          return (
-            <h3 key={i} style={{
-              fontWeight: "bold",
-              fontStyle: "italic",
-              fontSize: "12pt",
-              color: "#000",
-              margin: "16px 0 6px",
-            }}>
-              {line.replace("### ", "")}
-            </h3>
-          );
-        }
+        // ### Sous-section / Point ODJ
+        if (line.startsWith("### ")) return (
+          <div key={i} style={{
+            fontWeight: "bold",
+            fontSize: "11pt",
+            color: "#000",
+            marginTop: "18px",
+            marginBottom: "6px",
+            borderLeft: "3px solid #000",
+            paddingLeft: "10px",
+          }}>
+            {line.replace("### ", "")}
+          </div>
+        );
 
         // - Liste
-        if (line.startsWith("- ")) {
-          return (
-            <div key={i} style={{ paddingLeft: "24px", marginBottom: "4px" }}>
-              – {renderInline(line.replace("- ", ""))}
-            </div>
-          );
-        }
+        if (line.startsWith("- ")) return (
+          <div key={i} style={{
+            paddingLeft: "28px",
+            marginBottom: "3px",
+            textAlign: "justify" as const,
+          }}>
+            <span style={{ marginRight: "6px" }}>—</span>
+            {renderInline(line.replace("- ", ""))}
+          </div>
+        );
 
-        // • Remarque (bullet point groq)
-        if (line.startsWith("• ")) {
-          return (
-            <div key={i} style={{
-              paddingLeft: "32px",
-              marginBottom: "4px",
-              fontSize: "11pt",
-              color: "#222",
-            }}>
-              • {renderInline(line.replace("• ", ""))}
-            </div>
-          );
-        }
+        // • Bullet
+        if (line.startsWith("• ")) return (
+          <div key={i} style={{
+            paddingLeft: "36px",
+            marginBottom: "3px",
+            textAlign: "justify" as const,
+          }}>
+            <span style={{ marginRight: "6px" }}>•</span>
+            {renderInline(line.replace("• ", ""))}
+          </div>
+        );
 
-        // 1. Liste numérotée
-        if (/^\d+\.\s/.test(line)) {
-          return (
-            <div key={i} style={{ paddingLeft: "24px", marginBottom: "4px" }}>
-              {renderInline(line)}
-            </div>
-          );
-        }
+        // 1. Numérotée
+        if (/^\d+\.\s/.test(line)) return (
+          <div key={i} style={{ paddingLeft: "28px", marginBottom: "3px" }}>
+            {renderInline(line)}
+          </div>
+        );
 
         // Paragraphe normal
         return (
-          <p key={i} style={{ margin: "4px 0", fontSize: "11pt" }}>
+          <p key={i} style={{ margin: "4px 0", textAlign: "justify" }}>
             {renderInline(line)}
           </p>
         );

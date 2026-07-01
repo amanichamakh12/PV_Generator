@@ -2,8 +2,8 @@
 
 import json
 
-from backend.db_connection import SessionLocal
-from backend.models_layer.models import PVDocument
+from core_layer.database import SessionLocal
+from models_layer.dto_models import PVDocument
 
 
 def create_pv_document(filename: str, result: dict) -> int:

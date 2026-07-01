@@ -2,7 +2,7 @@
 
 import re
 
-from backend.Pv_Generator import EXPORT_DIR, export_pv_to_docx
+from Pv_Generator import EXPORT_DIR, export_pv_to_docx
 
 
 

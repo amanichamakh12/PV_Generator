@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PVRenderer } from './PVRenderer';
-import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, BorderStyle, AlignmentType, LineRuleType } from 'docx';
+import { Packer } from 'docx';
+import { buildPVDocxDocument } from '@/lib/pv-docx';
 import { 
   FileCheck, 
   Sparkles, 
@@ -22,22 +23,23 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
-
-const generateFinalPV = async (pvDraft: string, agendaItems: any[]) => {
+const generateFinalPV = async (pvDraft: string, agendaItems: any[], participants: string[] = []) => {
   console.group("🔵 generateFinalPV");
 
   console.log("📥 pvDraft (100 premiers chars) :", pvDraft?.slice(0, 100));
   console.log("📥 agendaItems :", agendaItems);
 
   // Étape 2 — Construction du payload notes
-  const notes = agendaItems.flatMap(a =>
-    a.notes.map((n: { speaker: any; content: any }) => ({
-      participant: n.speaker,
-      content: n.content,
-      ordre_du_jour: a.title
-    }))
-  );
+  // Skip raw notes for items that already have a reformulated paragraph
+  const notes = agendaItems
+    .filter(a => !a.reformulatedNotes)
+    .flatMap(a =>
+      a.notes.map((n: { speaker: any; content: any }) => ({
+        participant: n.speaker,
+        content: n.content,
+        ordre_du_jour: a.title
+      }))
+    );
   console.log("📋 Notes aplaties :", notes);
   console.log("📋 Nombre de notes :", notes.length);
 
@@ -46,7 +48,7 @@ const pvDraftStructure = {
   points: agendaItems.map(a => ({
     titre: a.title,
     expose: a.expose ?? "",
-    discussion: a.analysis ?? "",  
+    discussion: [a.analysis, a.reformulatedNotes].filter(Boolean).join("\n\n"),
     conclusion: a.conclusion ?? "",
     remarques: a.remarques ?? [],
   }))
@@ -109,10 +111,6 @@ if (typeof data.pv === "string") {
   const intro = pvDraft.split("## COMPTE RENDU DES DISCUSSIONS")[0] ?? "";
 
   const pointsMarkdown = data.pv.points.map((p: any, idx: number) => {
-    const remarques = (p.remarques ?? [])
-      .map((r: string) => `• ${r}`)
-      .join("\n");
-
     const decisions = (data.pv.decisions ?? [])
       .map((d: string) => `• ${d}`)
       .join("\n");
@@ -127,17 +125,20 @@ if (typeof data.pv === "string") {
       "",
       p.discussion || "",
       "",
-      remarques ? `**Remarques :**\n${remarques}` : "",
-      "",
       decisions ? `**Décisions :**\n${decisions}` : "",
       "",
       actions ? `**Plan d'action :**\n${actions}` : "",
-      "",
-      `**Conclusion :** ${p.conclusion || `Le Comité a pris acte des éléments présentés relatifs à ce point.`}`,
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 
-  pvFinal = `${intro}## COMPTE RENDU DES DISCUSSIONS\n\n${pointsMarkdown}\n\n---\nPV généré automatiquement par le système.`;
+  const signaturesText = participants.length > 0
+    ? `\n\n## SIGNATURES\n\n${participants.map((p: string) => {
+        const [name, role] = p.split(" — ");
+        return `**${name}**${role ? ` — ${role}` : ''}\n___________________________`;
+      }).join("\n\n")}`
+    : "";
+
+  pvFinal = `${intro}## COMPTE RENDU DES DISCUSSIONS\n\n${pointsMarkdown}${signaturesText}`;
 
   console.log("✅ Markdown reconstruit (200 premiers chars) :", pvFinal.slice(0, 200));
 
@@ -164,34 +165,61 @@ console.groupEnd();
 return pvFinal;
 };
 
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+
 export function FinalPVStep() {
-  const { document, agendaItems, updateDocument, setCurrentStep } = useWorkflow();
+  const { document, agendaItems, updateDocument, setCurrentStep, sessionId } = useWorkflow();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [isValidated, setIsValidated] = useState(false);
-   const [participants, setParticipants] = useState<string[]>(document?.participants || []);
-  const [newParticipant, setNewParticipant] = useState('');
-  const [newParticipantRole, setNewParticipantRole] = useState('');
+  const [isValidated, setIsValidated] = useState(
+    document?.status === 'validated' || !!document?.finalContent
+  );
+  const [error, setError] = useState<string | null>(null);
 
-const [error, setError] = useState<string | null>(null);
+  const participants = document?.participants ?? [];
+
+const buildFallbackDraft = (): string => {
+  const lines: string[] = [];
+  const titre = document?.title || 'PROCÈS-VERBAL';
+  lines.push(`# ${titre}`);
+  if (agendaItems.length > 0) {
+    lines.push('\n## ORDRE DU JOUR\n');
+    agendaItems.forEach((a, i) => lines.push(`${i + 1}. ${a.title}`));
+  }
+  if (participants.length > 0) {
+    lines.push('\n## ÉTAIENT PRÉSENTS\n');
+    participants.forEach(p => lines.push(`- ${p}`));
+  }
+  lines.push('\n## COMPTE RENDU DES DISCUSSIONS\n');
+  agendaItems.forEach((a, i) => {
+    lines.push(`\n### ${i + 1}. ${a.title}\n`);
+    lines.push([a.analysis, a.reformulatedNotes].filter(Boolean).join('\n\n'));
+  });
+  return lines.join('\n');
+};
 
 const handleGenerateFinal = async () => {
-  if (!document?.draftContent) {
-    console.error('draftContent manquant');
-    return;
-  }
+  const draftContent = document?.draftContent || buildFallbackDraft();
 
   setIsGenerating(true);
-  setError(null); // clear previous error
+  setError(null);
 
   try {
-    const finalPV = await generateFinalPV(document.draftContent, agendaItems);
+    const finalPV = await generateFinalPV(draftContent, agendaItems, participants);
 
     updateDocument({
-      finalContent: JSON.stringify(finalPV, null, 2),
+      finalContent: finalPV,
       finalJson: finalPV,
       status: 'reviewing'
     });
+
+    if (sessionId) {
+      fetch(`${API}/api/sessions/${sessionId}/final-pv`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: finalPV }),
+      }).catch(() => {});
+    }
   } catch (err: any) {
     console.error(err);
     setError(err.message ?? 'Une erreur est survenue');
@@ -213,212 +241,19 @@ const handleGenerateFinal = async () => {
   const handleValidate = () => {
     setIsValidated(true);
     updateDocument({ status: 'validated' });
-  };
-  function createDocxDocumentFromDraft(content: string) {
-    const paragraphs: Paragraph[] = [];
-    const lines = content.split(/\r?\n/);
-  
-    // Ligne de séparation réutilisable
-    const horizontalRule = new Paragraph({
-      border: {
-        bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 },
-      },
-      spacing: { after: 200 },
-      children: [],
-    });
-  
-    lines.forEach((rawLine) => {
-      const line = rawLine.trim();
-  
-      if (!line) {
-        paragraphs.push(new Paragraph({ spacing: { after: 100 } }));
-        return;
-      }
-  
-      if (line.startsWith('# ')) {
-        // Titre principal — grand, gras, centré, souligné
-        paragraphs.push(
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 400, after: 200 },
-            children: [
-              new TextRun({
-                text: line.replace('# ', ''),
-                bold: true,
-                size: 36, // 18pt
-                color: "000000",
-                font: "Calibri",
-              }),
-            ],
-          })
-        );
-        paragraphs.push(horizontalRule);
-        return;
-      }
-  
-      if (line.startsWith('## ')) {
-        // Section — gras, bordure gauche noire
-        paragraphs.push(
-          new Paragraph({
-            spacing: { before: 300, after: 120 },
-            border: {
-              left: { color: "000000", size: 12, style: BorderStyle.SINGLE, space: 8 },
-            },
-            indent: { left: 200 },
-            children: [
-              new TextRun({
-                text: line.replace('## ', ''),
-                bold: true,
-                size: 28, // 14pt
-                color: "000000",
-                font: "Calibri",
-              }),
-            ],
-          })
-        );
-        return;
-      }
-  
-      if (line.startsWith('### ')) {
-        // Sous-section — gras, italique
-        paragraphs.push(
-          new Paragraph({
-            spacing: { before: 200, after: 80 },
-            children: [
-              new TextRun({
-                text: line.replace('### ', ''),
-                bold: true,
-                italics: true,
-                size: 24, // 12pt
-                color: "000000",
-                font: "Calibri",
-              }),
-            ],
-          })
-        );
-        return;
-      }
-  
-      if (line.startsWith('- ')) {
-        // Bullet propre avec tiret
-        paragraphs.push(
-          new Paragraph({
-            spacing: { after: 80 },
-            indent: { left: 400, hanging: 200 },
-            children: [
-              new TextRun({
-                text: `– ${line.replace('- ', '')}`,
-                size: 22, // 11pt
-                color: "000000",
-                font: "Calibri",
-              }),
-            ],
-          })
-        );
-        // Section signatures
-    if (participants.length > 0) {
-      // Titre section
-      paragraphs.push(new Paragraph({
-        spacing: { before: 600, after: 200 },
-        border: {
-          bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 },
-        },
-        children: [new TextRun({
-          text: "SIGNATURES",
-          bold: true,
-          size: 28,
-          font: "Calibri",
-          color: "000000",
-        })],
-      }));
-  
-      // Grille de signatures 2 par ligne
-      for (let i = 0; i < participants.length; i += 2) {
-        const left = participants[i];
-        const right = participants[i + 1];
-  
-        const [leftName, leftRole] = left.split(" — ");
-        const [rightName, rightRole] = right ? right.split(" — ") : ["", ""];
-  
-        // Noms
-        paragraphs.push(new Paragraph({
-          spacing: { before: 400, after: 60 },
-          children: [
-            new TextRun({ text: leftName, bold: true, size: 22, font: "Calibri" }),
-            new TextRun({ text: "\t\t\t\t", size: 22 }),
-            new TextRun({ text: rightName, bold: true, size: 22, font: "Calibri" }),
-          ],
-        }));
-  
-        // Rôles
-        paragraphs.push(new Paragraph({
-          spacing: { after: 60 },
-          children: [
-            new TextRun({ text: leftRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }),
-            new TextRun({ text: "\t\t\t\t", size: 22 }),
-            new TextRun({ text: rightRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }),
-          ],
-        }));
-  
-        // Ligne de signature
-        paragraphs.push(new Paragraph({
-          spacing: { after: 200 },
-          children: [
-            new TextRun({ text: "_______________________", size: 22, font: "Calibri" }),
-            new TextRun({ text: "\t\t\t\t", size: 22 }),
-            new TextRun({ text: rightName ? "_______________________" : "", size: 22, font: "Calibri" }),
-          ],
-        }));
-      }
+    if (sessionId) {
+      fetch(`${API}/api/sessions/${sessionId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'pv_final_generated' }),
+      }).catch(() => {});
     }
-        return;
-      }
-  
-      // Paragraphe normal
-      paragraphs.push(
-        new Paragraph({
-          spacing: { after: 100 },
-          children: getRunsFromLine(line),
-        })
-      );
-    });
-  
-    return new DocxDocument({
-      styles: {
-        default: {
-          document: {
-            run: {
-              font: "Calibri",
-              size: 22, // 11pt
-              color: "000000",
-            },
-            paragraph: {
-              spacing: { line: 276, lineRule: LineRuleType.AUTO },
-            },
-          },
-        },
-      },
-      sections: [
-        {
-          properties: {
-            page: {
-              margin: {
-                top: 1440,    // 2.54cm
-                bottom: 1440,
-                left: 1440,
-                right: 1440,
-              },
-            },
-          },
-          children: paragraphs,
-        },
-      ],
-    });
-  }
+  };
 const handleDownload = async () => {
-  if (!document?.draftContent) return;
+  const content = document?.finalContent;
+  if (!content) return;
 
-  const doc = createDocxDocumentFromDraft(document.draftContent);
+  const doc = buildPVDocxDocument(content);
   const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = window.document.createElement('a');
@@ -498,6 +333,11 @@ const handleDownload = async () => {
           </div>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+              {error}
+            </div>
+          )}
           {isGenerating ? (
             <div className="flex items-center justify-center p-16 border rounded-lg bg-muted/30">
               <div className="text-center space-y-4">
@@ -520,8 +360,10 @@ const handleDownload = async () => {
                 />
               ) : (
                 
-            <ScrollArea className="h-[500px] border rounded-lg p-6">
-              <PVRenderer content={document.finalContent} />
+            <ScrollArea className="h-[500px] rounded-lg bg-neutral-200">
+              <div className="py-8">
+                <PVRenderer content={document.finalContent} />
+              </div>
             </ScrollArea>
               )}
 
@@ -586,17 +428,5 @@ const handleDownload = async () => {
         </Button>
       </div>
     </div>
-  );
-}
-function createDocxDocumentFromDraft(finalContent: string, arg1: string[]) {
-  throw new Error('Function not implemented.');
-}
-
-function getRunsFromLine(line: string): TextRun[] {
-  const parts = line.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map(part =>
-    part.startsWith("**") && part.endsWith("**")
-      ? new TextRun({ text: part.slice(2, -2), bold: true, font: "Calibri", size: 22 })
-      : new TextRun({ text: part, font: "Calibri", size: 22 })
   );
 }

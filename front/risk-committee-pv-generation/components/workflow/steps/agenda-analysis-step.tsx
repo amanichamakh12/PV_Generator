@@ -8,58 +8,68 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { 
-  ListChecks, 
-  Sparkles, 
-  RefreshCw, 
+import {
+  ListChecks,
+  Sparkles,
+  RefreshCw,
   CheckCircle2,
-  ArrowRight, 
+  ArrowRight,
   ArrowLeft,
   Loader2,
   FileText,
-  Check
+  Check,
+  X,
+  Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { text } from 'stream/consumers';
 
-// Mock AI analysis function for agenda items
-const mockAnalyzeAgendaItem = async (slides: { title: string; content: string; analysis: string }[]): Promise<string> => {
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  return `**Synthèse de l'Ordre du Jour:**
-
-Cette section regroupe ${slides.length} slide(s) traitant des points suivants:
-
-**1. Résumé Exécutif:**
-L'analyse consolidée révèle une approche structurée de gestion des risques avec des indicateurs clés bien définis.
-
-**2. Points Principaux Abordés:**
-${slides.map((s, i) => `  ${i + 1}. ${s.title}`).join('\n')}
-
-**3. Risques Identifiés:**
-• Risques opérationnels nécessitant une attention particulière
-• Impact potentiel sur les processus métier
-• Besoins en ressources pour la mitigation
-
-**4. Décisions Suggérées:**
-• Validation des mesures correctives proposées
-• Allocation des ressources nécessaires
-• Calendrier de mise en œuvre
-
-**5. Actions Recommandées:**
-• Suivi mensuel des indicateurs
-• Rapport d'avancement au prochain comité
-• Documentation des leçons apprises`;
-};
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
 export function AgendaAnalysisStep() {
-  const { slides, agendaItems, updateAgendaItem, setCurrentStep } = useWorkflow();
+  const { slides, agendaItems, updateAgendaItem, updateSlide, setCurrentStep, sessionId } = useWorkflow();
   const [selectedAgendaId, setSelectedAgendaId] = useState<string | null>(agendaItems[0]?.id || null);
   const [analyzingItems, setAnalyzingItems] = useState<Set<string>>(new Set());
 
   const selectedAgenda = agendaItems.find(a => a.id === selectedAgendaId);
-  const agendaSlides = selectedAgenda 
+  const agendaSlides = selectedAgenda
     ? slides.filter(s => s.agendaItemId === selectedAgenda.id)
     : [];
+  // Slides pouvant être ajoutées à l'ODJ courant (affectées ailleurs ou non affectées)
+  const availableSlides = selectedAgenda
+    ? slides.filter(s => s.agendaItemId !== selectedAgenda.id)
+    : [];
+
+  const persistSlideAgenda = async (slide: (typeof slides)[0], agendaOrder: number | null) => {
+    if (!slide.db_id) return;
+    try {
+      await fetch(`${API}/api/slides/${slide.db_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agenda_item_index: agendaOrder }),
+      });
+    } catch (err) {
+      console.error('Erreur réaffectation slide:', err);
+    }
+  };
+
+  const handleRemoveSlide = async (slideId: string) => {
+    const slide = slides.find(s => s.id === slideId);
+    if (!slide) return;
+    if (slide.agendaItemId) {
+      updateAgendaItem(slide.agendaItemId, { isValidated: false });
+    }
+    updateSlide(slideId, { agendaItemId: '' });
+    await persistSlideAgenda(slide, null);
+  };
+
+  const handleAssignSlide = async (slideId: string) => {
+    if (!selectedAgenda) return;
+    const slide = slides.find(s => s.id === slideId);
+    if (!slide) return;
+    updateAgendaItem(selectedAgenda.id, { isValidated: false });
+    updateSlide(slideId, { agendaItemId: selectedAgenda.id });
+    await persistSlideAgenda(slide, selectedAgenda.db_id ?? selectedAgenda.order);
+  };
 
   const handleAnalyzeAgenda = async (agendaId: string) => {
   const agenda = agendaItems.find(a => a.id === agendaId);
@@ -72,22 +82,25 @@ export function AgendaAnalysisStep() {
     const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
     const body = {
-      agenda_group: {
-        ordre_du_jour: agenda.title,
-        slides: relatedSlides.map(s => ({
-          index: s.slideNumber,
-          titre: s.title,
-          contenu: Array.isArray(s.contentBlocks) ? s.contentBlocks : s.content.split('\n'),
-          tableaux: s.tables ?? [],
-          graphiques: s.charts ?? [],
-          images: s.images ?? [],
-          notes: s.notes ?? null,
-        })),
-      },
+      ordre_du_jour: agenda.title,
+      slides: relatedSlides.map(s => ({
+        index: s.slideNumber,
+        titre: s.title,
+        contenu: s.extractedContent
+          ? s.extractedContent.split('\n').filter(Boolean)
+          : Array.isArray(s.contentBlocks)
+            ? s.contentBlocks
+            : (s.content || '').split('\n').filter(Boolean),
+        tableaux: s.tables ?? [],
+        graphiques: s.charts ?? [],
+        images: (s.images ?? []).filter((img: any) => img?.status === 'done'),
+        notes: s.notes ?? null,
+      })),
       use_llm: true,
     };
+console.log('DEBUG images raw:', JSON.stringify(relatedSlides.map(s => s.images), null, 2));
 
-    const res = await fetch(`${apiUrl}/api/test-agenda-analysis`, {
+    const res = await fetch(`${apiUrl}/api/analyze-agenda-full`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -102,24 +115,27 @@ export function AgendaAnalysisStep() {
     console.log('✅ Analyse agenda reçue:', data);
 
     const result = data.result || {};
-    const sections: string[] = [];
 
-    if (result?.analyse) sections.push(result.analyse);
-    if (result?.constats?.length) {
-      sections.push('\n**Constats :**');
-      result.constats.forEach((c: string) => sections.push(`• ${c}`));
-    }
-    if (result?.risques?.length) {
-      sections.push('\n**Risques identifiés :**');
-      result.risques.forEach((r: string) => sections.push(`• ${r}`));
-    }
-    if (result?.actions_suggerees?.length) {
-      sections.push('\n**Actions suggérées :**');
-      result.actions_suggerees.forEach((a: string) => sections.push(`• ${a}`));
-    }
-
-    const analysis = sections.join('\n');
+    // Utilise paragraphe_pv (rédigé en style PV) si disponible, sinon fallback sur analyse
+    const analysis = result?.paragraphe_pv || result?.analyse || '';
     updateAgendaItem(agendaId, { analysis, isAnalyzed: true });
+
+    if (agenda.db_id) {
+      fetch(`${API}/api/agenda-items/${agenda.db_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis }),
+      }).catch(() => {});
+    }
+
+    // Marquer la session comme "agenda_analyzed" dès qu'au moins un ODJ est analysé
+    if (sessionId) {
+      fetch(`${API}/api/sessions/${sessionId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'agenda_analyzed' }),
+      }).catch(() => {});
+    }
 
   } catch (err: any) {
     console.error('❌ Erreur API analyse ordre du jour:', err.message);
@@ -168,23 +184,38 @@ export function AgendaAnalysisStep() {
   };
 
   const handleValidateAgenda = (agendaId: string) => {
+    const agenda = agendaItems.find(a => a.id === agendaId);
     updateAgendaItem(agendaId, { isValidated: true });
+    if (agenda?.db_id) {
+      fetch(`${API}/api/agenda-items/${agenda.db_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis: agenda.analysis }),
+      }).catch(() => {});
+    }
   };
 
   const handleAnalysisChange = (agendaId: string, analysis: string) => {
-    updateAgendaItem(agendaId, { analysis });
+    updateAgendaItem(agendaId, { analysis, isValidated: false });
   };
 
-  const allAgendasValidated = agendaItems.every(a => a.isValidated);
+  const hasValidatedAgenda = agendaItems.some(a => a.isAnalyzed && a.isValidated);
   const analyzedCount = agendaItems.filter(a => a.isAnalyzed).length;
   const validatedCount = agendaItems.filter(a => a.isValidated).length;
 
   const handleContinue = () => {
+    if (sessionId) {
+      fetch(`${API}/api/sessions/${sessionId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'agenda_analyzed' }),
+      }).catch(() => {});
+    }
     setCurrentStep('draft-generation');
   };
 
   const handleBack = () => {
-    setCurrentStep('slide-analysis');
+    setCurrentStep('extract');
   };
 
   return (
@@ -285,28 +316,96 @@ export function AgendaAnalysisStep() {
           <CardContent>
             {selectedAgenda ? (
               <div className="space-y-4">
-                {/* Related Slides Accordion */}
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="slides" className="border rounded-lg">
+                {/* Slides de cet ODJ + gestion affectation */}
+                <Accordion type="multiple" className="w-full space-y-2">
+
+                  {/* ── Slides actuellement dans cet ODJ ── */}
+                  <AccordionItem value="slides-in" className="border rounded-lg">
                     <AccordionTrigger className="px-4 hover:no-underline">
                       <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-medium">Slides Associées ({agendaSlides.length})</span>
+                        <span className="text-sm font-medium">
+                          Slides associées ({agendaSlides.length})
+                        </span>
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="px-4 pb-4">
-                      <div className="space-y-3">
-                        {agendaSlides.map((slide) => (
-                          <div key={slide.id} className="p-3 bg-muted/50 rounded-lg">
-                            <p className="font-medium text-sm">{slide.title}</p>
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                              {slide.extractedContent}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
+                      {agendaSlides.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-3">
+                          Aucune slide affectée à cet ordre du jour.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {agendaSlides.map((slide) => (
+                            <div key={slide.id} className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">
+                                  #{slide.slideNumber} {slide.title || 'Sans titre'}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                                  {slide.extractedContent}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveSlide(slide.id)}
+                                className="shrink-0 p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+                                title="Retirer de cet ordre du jour"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </AccordionContent>
                   </AccordionItem>
+
+                  {/* ── Slides disponibles à ajouter ── */}
+                  <AccordionItem value="slides-add" className="border rounded-lg">
+                    <AccordionTrigger className="px-4 hover:no-underline">
+                      <div className="flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-medium">
+                          Ajouter des slides ({availableSlides.length})
+                        </span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                      {availableSlides.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-3">
+                          Toutes les slides sont déjà dans cet ordre du jour.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {availableSlides.map((slide) => {
+                            const currentOdj = agendaItems.find(a => a.id === slide.agendaItemId);
+                            return (
+                              <div key={slide.id} className="flex items-start gap-2 p-3 bg-muted/30 border border-dashed rounded-lg">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    #{slide.slideNumber} {slide.title || 'Sans titre'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {currentOdj
+                                      ? `ODJ : ${currentOdj.order}. ${currentOdj.title}`
+                                      : 'Non affectée'}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => handleAssignSlide(slide.id)}
+                                  className="shrink-0 p-1 rounded hover:bg-primary/10 hover:text-primary text-muted-foreground transition-colors"
+                                  title="Ajouter à cet ordre du jour"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
+
                 </Accordion>
 
                 {/* Analysis Section */}
@@ -327,15 +426,14 @@ export function AgendaAnalysisStep() {
                           Analyser
                         </Button>
                       )}
-                      {selectedAgenda.isAnalyzed && !selectedAgenda.isValidated && (
+                      {selectedAgenda.isAnalyzed && !analyzingItems.has(selectedAgenda.id) && (
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleRegenerateAnalysis(selectedAgenda.id)}
                           className="gap-2"
-                          disabled={analyzingItems.has(selectedAgenda.id)}
                         >
-                          <RefreshCw className={cn('w-4 h-4', analyzingItems.has(selectedAgenda.id) && 'animate-spin')} />
+                          <RefreshCw className="w-4 h-4" />
                           Régénérer
                         </Button>
                       )}
@@ -354,7 +452,6 @@ export function AgendaAnalysisStep() {
                       value={selectedAgenda.analysis}
                       onChange={(e) => handleAnalysisChange(selectedAgenda.id, e.target.value)}
                       className="min-h-[300px] resize-none font-mono text-sm"
-                      disabled={selectedAgenda.isValidated}
                     />
                   ) : (
                     <div className="flex items-center justify-center p-12 border rounded-lg bg-muted/30 border-dashed">
@@ -379,10 +476,15 @@ export function AgendaAnalysisStep() {
                 )}
 
                 {selectedAgenda.isValidated && (
-                  <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/20 rounded-lg">
-                    <CheckCircle2 className="w-5 h-5 text-accent" />
-                    <span className="text-sm text-accent font-medium">
-                      Cet ordre du jour a été validé
+                  <div className="flex items-center justify-between p-3 bg-accent/10 border border-accent/20 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-accent" />
+                      <span className="text-sm text-accent font-medium">
+                        Cet ordre du jour a été validé
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Vous pouvez modifier ou régénérer l&apos;analyse ci-dessus
                     </span>
                   </div>
                 )}
@@ -402,9 +504,11 @@ export function AgendaAnalysisStep() {
           <ArrowLeft className="w-4 h-4" />
           Retour
         </Button>
-        <Button 
-          onClick={handleContinue} 
+        <Button
+          onClick={handleContinue}
           className="gap-2"
+          disabled={!hasValidatedAgenda}
+          title={!hasValidatedAgenda ? "Veuillez analyser et valider au moins un ordre du jour" : undefined}
         >
           Générer le Draft PV
           <ArrowRight className="w-4 h-4" />

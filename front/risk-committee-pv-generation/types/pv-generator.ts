@@ -7,6 +7,7 @@ export interface ImageExtractionState {
 
 export interface Slide {
   id: string;
+  db_id?: number;
   slideNumber: number;
   title: string;
   content: string;
@@ -26,6 +27,7 @@ export interface Slide {
 
 export interface AgendaItem {
   id: string;
+  db_id?: number;
   title: string;
   order: number;
   slides: Slide[];
@@ -33,13 +35,16 @@ export interface AgendaItem {
   isAnalyzed: boolean;
   isValidated: boolean;
   notes: MeetingNote[];
+  reformulatedNotes?: string;
 }
 
 export interface MeetingNote {
   id: string;
+  db_id?: number;
   speaker: string;
   content: string;
   timestamp: Date;
+  type?: 'note' | 'recommendation';
 }
 
 export interface PVDocument {
@@ -56,11 +61,14 @@ export interface PVDocument {
     arabic?: string;
     english?: string;
   };
+  db_draft_id?: number;
   draftJson?: any;
   finalJson?: any;
 }
 
-export type WorkflowStep = 
+export type WorkflowStep =
+  | 'home'
+  | 'dashboard'
   | 'upload'
   | 'extract'
   | 'agenda-analysis'

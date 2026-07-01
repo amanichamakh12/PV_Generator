@@ -6,7 +6,7 @@ import { useWorkflow } from '@/contexts/workflow-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ImageAnalysisSummary } from '@/components/workflow/extraction-progress-banner';
+
 import {
   Upload,
   Presentation,
@@ -32,6 +32,7 @@ export function UploadStep() {
     setDocument,
     setCurrentStep,
     setProcessing,
+    setSessionId,
     prepareImageExtraction,
     imageExtraction,
   } = useWorkflow();
@@ -52,16 +53,11 @@ export function UploadStep() {
       if (!file) return;
 
       const validTypes = [
-        'application/vnd.ms-powerpoint',
         'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       ];
-      if (
-        !validTypes.includes(file.type) &&
-        !file.name.endsWith('.pptx') &&
-        !file.name.endsWith('.ppt')
-      ) {
+      if (!validTypes.includes(file.type) && !file.name.endsWith('.pptx')) {
         setPhase('error');
-        setErrorMessage('Veuillez importer un fichier PowerPoint (.ppt ou .pptx)');
+        setErrorMessage('Format non supporté. Veuillez importer uniquement un fichier .pptx');
         return;
       }
 
@@ -109,6 +105,10 @@ export function UploadStep() {
         setSlides(mappedSlides);
         setAgendaItems(agendaItems);
 
+        if (data.session_id) {
+          setSessionId(data.session_id);
+        }
+
         const newDocument: PVDocument = {
           id: `pv-${Date.now()}`,
           title: `PV Comité des Risques - ${new Date().toLocaleDateString('fr-FR')}`,
@@ -126,8 +126,8 @@ export function UploadStep() {
         setPhase('ready');
         setProcessing(false);
 
-        if (data.token) {
-          prepareImageExtraction(data.token, pendingImages);
+        if (pendingImages > 0 && data.token) {
+          prepareImageExtraction(data.token, pendingImages, String(data.session_id || ''));
         }
       } catch (err: any) {
         if (err instanceof TypeError) {
@@ -141,13 +141,12 @@ export function UploadStep() {
         setProcessing(false);
       }
     },
-    [setSlides, setAgendaItems, setDocument, setProcessing, prepareImageExtraction],
+    [setSlides, setAgendaItems, setDocument, setProcessing, setSessionId, prepareImageExtraction],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'application/vnd.ms-powerpoint': ['.ppt'],
       'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
     },
     multiple: false,
@@ -200,7 +199,7 @@ export function UploadStep() {
                     ou <span className="text-primary font-medium">cliquez pour parcourir</span>
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground">Formats acceptés: .ppt, .pptx</p>
+                <p className="text-xs text-muted-foreground">Format accepté : .pptx uniquement</p>
               </div>
             )}
 
@@ -237,8 +236,8 @@ export function UploadStep() {
                   <AlertCircle className="w-10 h-10 text-destructive" />
                 </div>
                 <div>
-                  <p className="text-lg font-medium text-foreground">Erreur d&apos;importation</p>
-                  <p className="text-sm text-destructive mt-1">{errorMessage}</p>
+                  <p className="text-lg font-medium text-destructive">Erreur d&apos;importation</p>
+                  <p className="text-sm font-medium text-destructive mt-1">{errorMessage}</p>
                 </div>
                 <Button
                   variant="outline"
@@ -263,7 +262,6 @@ export function UploadStep() {
                 <StatCard icon={<ImageIcon className="w-4 h-4" />} label="Images IA" value={stats.pendingImages} />
               </div>
 
-              <ImageAnalysisSummary imageExtraction={imageExtraction} className="text-center" />
 
               {stats.pendingImages > 0 && (
                 <p className="text-xs text-center text-muted-foreground">

@@ -20,9 +20,12 @@ import type {
 import {
   normalizeStreamImageResult,
   streamSingleImageAnalysis,
+  getApiBaseUrl,
 } from '@/lib/pptx-import';
 
 interface WorkflowContextType extends WorkflowState {
+  sessionId: number | null;
+  setSessionId: (id: number | null) => void;
   setCurrentStep: (step: WorkflowStep) => void;
   setSlides: (slides: Slide[]) => void;
   updateSlide: (slideId: string, updates: Partial<Slide>) => void;
@@ -34,9 +37,9 @@ interface WorkflowContextType extends WorkflowState {
   deleteSlide: (slideId: string) => void;
   setAgendaItems: (items: AgendaItem[]) => void;
   updateAgendaItem: (itemId: string, updates: Partial<AgendaItem>) => void;
-  addMeetingNote: (agendaItemId: string, note: Omit<MeetingNote, 'id'>) => void;
+  addMeetingNote: (agendaItemId: string, note: Omit<MeetingNote, 'id'>, agendaItemDbId?: number) => void;
   updateMeetingNote: (agendaItemId: string, noteId: string, content: string) => void;
-  deleteMeetingNote: (agendaItemId: string, noteId: string) => void;
+  deleteMeetingNote: (agendaItemId: string, noteId: string, noteDbId?: number) => void;
   setDocument: (doc: PVDocument | null) => void;
   updateDocument: (updates: Partial<PVDocument>) => void;
   setProcessing: (isProcessing: boolean) => void;
@@ -45,9 +48,10 @@ interface WorkflowContextType extends WorkflowState {
   canProceedToNextStep: () => boolean;
   goToNextStep: () => void;
   goToPreviousStep: () => void;
-  prepareImageExtraction: (token: string, total: number) => void;
+  prepareImageExtraction: (token: string, total: number, sessionId?: string) => void;
   runSingleImageAnalysis: (slideNumber: number, imageIndex: number) => Promise<void>;
   isImageAnalyzing: (slideNumber: number, imageIndex: number) => boolean;
+  loadSession: (sessionId: number) => Promise<void>;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);
@@ -74,7 +78,7 @@ function imageStreamKey(slideNumber: number, imageIndex: number) {
 }
 
 const initialState: WorkflowState = {
-  currentStep: 'upload',
+  currentStep: 'home',
   document: null,
   slides: [],
   agendaItems: [],
@@ -96,8 +100,10 @@ function syncAgendaSlides(slides: Slide[], agendaItems: AgendaItem[]) {
 
 export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WorkflowState>(initialState);
+  const [sessionId, setSessionId] = useState<number | null>(null);
   const activeStreamsRef = useRef<Set<string>>(new Set());
   const extractionTokenRef = useRef<string | null>(null);
+  const extractionSessionIdRef = useRef<string>('');
   const [, forceStreamTick] = useState(0);
 
   const setCurrentStep = useCallback((step: WorkflowStep) => {
@@ -255,39 +261,92 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const addMeetingNote = useCallback((agendaItemId: string, note: Omit<MeetingNote, 'id'>) => {
+  const addMeetingNote = useCallback((
+    agendaItemId: string,
+    note: Omit<MeetingNote, 'id'>,
+    agendaItemDbId?: number,
+  ) => {
     const newNote: MeetingNote = {
       ...note,
-      id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
     };
+
     setState(prev => ({
       ...prev,
       agendaItems: prev.agendaItems.map(item =>
         item.id === agendaItemId ? { ...item, notes: [...item.notes, newNote] } : item,
       ),
     }));
-  }, []);
+
+    if (sessionId) {
+      fetch(`${getApiBaseUrl()}/api/meeting-notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          participant: note.speaker,
+          content: note.content,
+          agenda_item_index: agendaItemDbId ?? null,
+          type: note.type ?? 'note',
+        }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data?.id) return;
+          setState(prev => ({
+            ...prev,
+            agendaItems: prev.agendaItems.map(item =>
+              item.id === agendaItemId
+                ? {
+                    ...item,
+                    notes: item.notes.map(n =>
+                      n.id === newNote.id ? { ...n, db_id: data.id } : n,
+                    ),
+                  }
+                : item,
+            ),
+          }));
+        })
+        .catch(() => {});
+    }
+  }, [sessionId]);
 
   const updateMeetingNote = useCallback(
     (agendaItemId: string, noteId: string, content: string) => {
-      setState(prev => ({
-        ...prev,
-        agendaItems: prev.agendaItems.map(item =>
-          item.id === agendaItemId
-            ? {
-                ...item,
-                notes: item.notes.map(note =>
-                  note.id === noteId ? { ...note, content } : note,
-                ),
-              }
-            : item,
-        ),
-      }));
+      let noteDbId: number | undefined;
+      setState(prev => {
+        const updated = {
+          ...prev,
+          agendaItems: prev.agendaItems.map(item =>
+            item.id === agendaItemId
+              ? {
+                  ...item,
+                  notes: item.notes.map(note => {
+                    if (note.id === noteId) {
+                      noteDbId = note.db_id;
+                      return { ...note, content };
+                    }
+                    return note;
+                  }),
+                }
+              : item,
+          ),
+        };
+        return updated;
+      });
+
+      if (noteDbId) {
+        fetch(`${getApiBaseUrl()}/api/meeting-notes/${noteDbId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        }).catch(() => {});
+      }
     },
     [],
   );
 
-  const deleteMeetingNote = useCallback((agendaItemId: string, noteId: string) => {
+  const deleteMeetingNote = useCallback((agendaItemId: string, noteId: string, noteDbId?: number) => {
     setState(prev => ({
       ...prev,
       agendaItems: prev.agendaItems.map(item =>
@@ -296,6 +355,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           : item,
       ),
     }));
+
+    if (noteDbId) {
+      fetch(`${getApiBaseUrl()}/api/meeting-notes/${noteDbId}`, { method: 'DELETE' })
+        .catch(() => {});
+    }
   }, []);
 
   const setDocument = useCallback((document: PVDocument | null) => {
@@ -323,8 +387,9 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setState(initialState);
   }, []);
 
-  const prepareImageExtraction = useCallback((token: string, total: number) => {
+  const prepareImageExtraction = useCallback((token: string, total: number, sessionId = '') => {
     extractionTokenRef.current = token;
+    extractionSessionIdRef.current = sessionId;
     setState(prev => ({
       ...prev,
       imageExtraction: {
@@ -379,7 +444,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       startSlideImageStream(slideNumber, imageIndex);
 
       try {
-        await streamSingleImageAnalysis(token, slideNumber, imageIndex, event => {
+        await streamSingleImageAnalysis(token, slideNumber, imageIndex, extractionSessionIdRef.current, event => {
           if (event.type === 'image_status') {
             updateSlideImageStreamStatus(
               event.slide_index,
@@ -429,6 +494,157 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const loadSession = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/sessions/${id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      // Build agenda ordre map: agenda_item.id → ordre
+      const agendaOrdreMap: Record<number, number> = {};
+      for (const a of data.agenda_items ?? []) {
+        agendaOrdreMap[a.id] = a.ordre;
+      }
+
+      const mappedSlides: Slide[] = (data.slides ?? []).map((s: any) => {
+        const smolvlmImages = (s.charts ?? [])
+          .filter((c: any) => c.extraction_method === 'smolvlm')
+          .map((c: any) => ({
+            db_id: c.id,
+            status: 'done',
+            ...(c.chart_data ?? {}),
+          }));
+
+
+
+        const nativeCharts = (s.charts ?? []).filter((c: any) => c.extraction_method !== 'smolvlm');
+
+        console.log(`Slide ${s.slide_number} — SmolVLM images (normalized):`, smolvlmImages);
+        console.log(`Slide ${s.slide_number} — charts natifs:`, nativeCharts);
+
+        return {
+          id: `slide-${s.id}`,
+          db_id: s.id,
+          slideNumber: s.slide_number,
+          title: s.titre ?? '',
+          content: s.contenu ?? '',
+          extractedContent: s.contenu ?? '',
+          analysis: '',
+          isAnalyzed: false,
+          isValidated: false,
+          agendaItemId: s.agenda_item_index != null
+            ? `agenda-${agendaOrdreMap[s.agenda_item_index] ?? s.agenda_item_index}`
+            : '',
+          tables: (s.tables ?? []).map((t: any) => ({
+            db_id: t.id,
+            ...(t.table_data && typeof t.table_data === 'object' ? t.table_data : {}),
+          })),
+          images: smolvlmImages,
+          charts: nativeCharts,
+        };
+      });
+      
+      // Group meeting notes by their agenda item DB id
+      const notesByAgendaDbId: Record<number, MeetingNote[]> = {};
+      for (const n of data.meeting_notes ?? []) {
+        const key = n.agenda_item_index as number;
+        if (key == null) continue;
+        if (!notesByAgendaDbId[key]) notesByAgendaDbId[key] = [];
+        notesByAgendaDbId[key].push({
+          id: `note-${n.id}`,
+          db_id: n.id,
+          speaker: n.participant ?? '',
+          content: n.content ?? '',
+          timestamp: n.created_at ? new Date(n.created_at) : new Date(),
+          type: (n.type === 'recommendation' ? 'recommendation' : 'note') as 'note' | 'recommendation',
+        });
+      }
+
+      const mappedAgenda: AgendaItem[] = (data.agenda_items ?? []).map((a: any) => ({
+        id: `agenda-${a.ordre}`,
+        db_id: a.id,
+        title: a.titre ?? '',
+        order: a.ordre,
+        slides: [],
+        analysis: a.analysis ?? '',
+        isAnalyzed: !!a.analysis,
+        isValidated: !!a.analysis,
+        notes: notesByAgendaDbId[a.id] ?? [],
+        reformulatedNotes: a.reformulated_notes ?? undefined,
+      }));
+
+      const draft = data.draft ?? null;
+      // participants may be strings ("nom — role") or legacy objects {nom, role}
+      const participantsList: string[] = (data.participants ?? []).map((p: any) => {
+        if (typeof p === 'string') return p;
+        return p.role ? `${p.nom} — ${p.role}` : (p.nom ?? '');
+      }).filter(Boolean);
+
+      // Inject ORDRE DU JOUR if missing from saved draft (older sessions)
+      const injectOrdreduJour = (content: string): string => {
+        if (!content || content.includes('## ORDRE DU JOUR')) return content;
+        const items = mappedAgenda.length > 0
+          ? mappedAgenda.map((a, i) => `${i + 1}. ${a.title}`).join('\n')
+          : "1. Confirmation de l'ordre du jour";
+        const section = `\n## ORDRE DU JOUR\n\n${items}\n`;
+        if (content.includes('## ÉTAIENT PRÉSENTS')) {
+          return content.replace('## ÉTAIENT PRÉSENTS', `${section}\n## ÉTAIENT PRÉSENTS`);
+        }
+        if (content.includes('## COMPTE RENDU')) {
+          return content.replace('## COMPTE RENDU', `${section}\n## COMPTE RENDU`);
+        }
+        return content + section;
+      };
+
+      const rawDraftContent = draft?.draft_content ?? '';
+      const patchedDraftContent = injectOrdreduJour(rawDraftContent);
+
+      const sessionStatus: string = data.status ?? '';
+      const hasFinalContent = !!data.final_content;
+      const restoredDocument: PVDocument | null = draft
+        ? {
+            id: String(draft.id),
+            title: draft.titre ?? '',
+            date: draft.date_reunion ? new Date(draft.date_reunion) : new Date(),
+            committeeType: draft.comite_type ?? '',
+            participants: participantsList,
+            agendaItems: [],
+            draftContent: patchedDraftContent,
+            finalContent: data.final_content ?? '',
+            status: (hasFinalContent || sessionStatus === 'pv_final_generated' || sessionStatus === 'pv_final_translated') ? 'validated' : 'draft',
+            translations: data.translations ?? {},
+            db_draft_id: draft.id,
+          }
+        : null;
+
+      setSessionId(id);
+      setState(prev => ({
+        ...prev,
+        slides: mappedSlides,
+        agendaItems: syncAgendaSlides(mappedSlides, mappedAgenda),
+        document: restoredDocument,
+        draftContent: patchedDraftContent,
+        currentStep: (() => {
+          const status: string = data.status ?? data.session?.status ?? '';
+          if (status === 'pv_final_translated') return 'translation';
+          if (status === 'pv_final_generated') return 'final-pv';
+          if (status === 'draft_generated') return 'meeting-notes';
+          if (status === 'agenda_analyzed') return 'draft-generation';
+          // For early statuses, infer step from available data
+          if (patchedDraftContent) return 'meeting-notes';
+          const agendaWithAnalysis = (data.agenda_items ?? []).filter((a: any) => !!a.analysis);
+          if (agendaWithAnalysis.length > 0 && agendaWithAnalysis.length === (data.agenda_items ?? []).length) {
+            return 'draft-generation';
+          }
+          if (agendaWithAnalysis.length > 0) return 'agenda-analysis';
+          return 'extract';
+        })() as WorkflowStep,
+      }));
+    } catch (err) {
+      console.error('loadSession error:', err);
+    }
+  }, [setSessionId]);
+
   const canProceedToNextStep = useCallback(() => {
     switch (state.currentStep) {
       case 'upload':
@@ -436,7 +652,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       case 'extract':
         return state.slides.every(s => s.extractedContent);
       case 'agenda-analysis':
-        return state.agendaItems.every(a => a.isValidated);
+        return state.agendaItems.some(a => a.isAnalyzed && a.isValidated);
       case 'draft-generation':
         return state.document?.draftContent !== undefined;
       case 'meeting-notes':
@@ -468,6 +684,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     <WorkflowContext.Provider
       value={{
         ...state,
+        sessionId,
+        setSessionId,
         setCurrentStep,
         setSlides,
         updateSlide,
@@ -493,6 +711,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         prepareImageExtraction,
         runSingleImageAnalysis,
         isImageAnalyzing,
+        loadSession,
       }}
     >
       {children}

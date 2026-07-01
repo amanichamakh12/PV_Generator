@@ -65,6 +65,7 @@ export function mapRawSlidesToWorkflow(rawSlides: any[]): {
 
     return {
       id: `slide-${idx + 1}`,
+      db_id: s.db_id ?? undefined,
       slideNumber: s.index || s.slide_index || idx + 1,
       title,
       content,
@@ -82,10 +83,20 @@ export function mapRawSlidesToWorkflow(rawSlides: any[]): {
     };
   });
 
+  // Reconstruit un index titre → db_id à partir des slides brutes (injecté par extraction_service)
+  const agendaDbIdMap = new Map<string, number>();
+  for (const s of rawSlides) {
+    const title = (s['ordre du jour'] || s.ordre_du_jour || '').toString().trim();
+    if (title && s.agenda_item_db_id != null && !agendaDbIdMap.has(title)) {
+      agendaDbIdMap.set(title, s.agenda_item_db_id);
+    }
+  }
+
   const agendaItems: AgendaItem[] = Array.from(agendaMap.keys()).map((title, i) => {
     const id = `agenda-${i + 1}`;
     return {
       id,
+      db_id: agendaDbIdMap.get(title),
       title,
       order: i + 1,
       slides: slides.filter(s => s.agendaItemId === id),
@@ -141,12 +152,24 @@ async function consumeImageSSE(
 
       try {
         const data = JSON.parse(line.slice(5).trim()) as ImageStreamEvent & Record<string, unknown>;
-        if (data.type === 'done' || data.done) return;
+        console.log('[SSE event]', data); // ← ajoute ça
+
         if (data.type === 'error' || data.erreur) {
           throw new Error(String(data.erreur || 'Erreur stream image'));
         }
+        if (data.type === 'done' || data.done) {
+          await reader.cancel();
+          return;
+        }
         if (data.type) {
           onEvent(data as ImageStreamEvent);
+          if (
+            data.type === 'image_done' ||
+            data.type === 'image_error'
+          ) {
+            await reader.cancel();
+            return;
+          }
         }
       } catch (err) {
         if (err instanceof Error && err.message.includes('Erreur stream')) throw err;
@@ -159,16 +182,19 @@ export async function streamSingleImageAnalysis(
   token: string,
   slideIndex: number,
   imageIndex: number,
+  session_id: string,
   onEvent: (event: ImageStreamEvent) => void,
 ): Promise<void> {
+  let gotFinalEvent = false;
   const apiUrl = getApiBaseUrl();
-  const res = await fetch(`${apiUrl}/api/parse-pptx/analyze-image-stream`, {
+  const res = await fetch(`${apiUrl}/api/analyze-image/smolvlm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       token,
       slide_index: slideIndex,
       image_index: imageIndex,
+      session_id: session_id
     }),
   });
 
@@ -177,5 +203,23 @@ export async function streamSingleImageAnalysis(
     throw new Error(txt || `Erreur analyse image (${res.status})`);
   }
 
-  await consumeImageSSE(res, onEvent);
+  await consumeImageSSE(res, event => {
+    if (
+    event.type === 'image_done' ||
+    event.type === 'image_error' ||
+    event.type === 'done'        // ← ajouter
+  ) {
+    gotFinalEvent = true;
+  }
+    onEvent(event);
+  });
+
+  if (!gotFinalEvent) {
+    onEvent({
+      type: 'image_error',
+      slide_index: slideIndex,
+      image_index: imageIndex,
+      error: 'Connexion interrompue — veuillez ré-analyser',
+    });
+  }
 }

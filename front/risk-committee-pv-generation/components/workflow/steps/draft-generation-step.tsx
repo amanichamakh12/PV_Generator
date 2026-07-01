@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { PVRenderer } from './PVRenderer';
 import { 
   FileText, 
   Sparkles, 
@@ -22,77 +23,14 @@ import {
   X,
   Download
 } from 'lucide-react';
-import {
-  AlignmentType,
-  LineRuleType,
-} from "docx";
 import { cn } from '@/lib/utils';
-import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, BorderStyle } from 'docx';
+import { Packer } from 'docx';
+import { buildPVDocxDocument } from '@/lib/pv-docx';
 
-// Mock function to generate draft PV
-const mockGenerateDraftPV = async (
-  title: string,
-  date: Date,
-  agendaItems: { title: string; analysis: string }[]
-): Promise<string> => {
-  await new Promise(resolve => setTimeout(resolve, 2500));
-  
-  return `# PROCÈS-VERBAL
-## ${title}
-
-**Date:** ${date.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-
-**Type de Comité:** Comité des Risques
-
----
-
-### PARTICIPANTS
-
-*À compléter lors de la réunion*
-
----
-
-### ORDRE DU JOUR
-
-${agendaItems.map((item, i) => `${i + 1}. ${item.title}`).join('\n')}
-
----
-
-### COMPTE RENDU DES DISCUSSIONS
-
-${agendaItems.map((item, i) => `
-#### ${i + 1}. ${item.title}
-
-${item.analysis}
-
-**Décisions prises:**
-- *À compléter lors de la réunion*
-
-**Actions à mener:**
-- *À compléter lors de la réunion*
-
----
-`).join('\n')}
-
-### PROCHAINES ÉTAPES
-
-*À définir lors de la réunion*
-
----
-
-### PROCHAINE RÉUNION
-
-*Date à confirmer*
-
----
-
-**Rédigé par:** Système de Génération PV
-**Date de création:** ${new Date().toLocaleDateString('fr-FR')}
-`;
-};
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
 export function DraftGenerationStep() {
-const { document, slides, agendaItems, updateDocument, setCurrentStep } = useWorkflow();
+const { document, slides, agendaItems, updateDocument, setCurrentStep, sessionId } = useWorkflow();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [participants, setParticipants] = useState<string[]>(document?.participants || []);
@@ -182,10 +120,43 @@ La feuille de présence a été établie et dûment signée par les membres pré
 
     const draftContent = formatPVtoText(pvLocal);
 
-    updateDocument({
-      draftContent,
-      status: 'draft',
-    });
+    updateDocument({ draftContent, status: 'draft' });
+
+    // Persistance DB
+    if (sessionId) {
+      try {
+        const isoDate = document.date.toISOString().split('T')[0];
+        const payload = {
+          session_id: sessionId,
+          titre: pvLocal.titre,
+          date_reunion: isoDate,
+          introduction: pvLocal.introduction?.trim() ?? null,
+          comite_type: 'Comité des Risques',
+          participants: participants,
+          points: pvLocal.points,
+          plan_action: pvLocal.plan_action,
+          draft_content: draftContent,
+        };
+        const res = await fetch(`${API}/api/pv-drafts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updateDocument({ db_draft_id: data.draft_id });
+          await fetch(`${API}/api/sessions/${sessionId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'draft_generated' }),
+          });
+        } else {
+          console.error('Erreur persistance draft:', await res.text());
+        }
+      } catch (dbErr) {
+        console.error('Erreur persistance draft:', dbErr);
+      }
+    }
   } catch (err: any) {
     console.error('❌ Erreur génération draft:', err.message);
   } finally {
@@ -193,221 +164,10 @@ La feuille de présence a été établie et dûment signée par les membres pré
   }
 };
 
-function getRunsFromLine(line: string): TextRun[] {
-  return line.split(/(\*\*.*?\*\*)/g).filter(Boolean).map((part) => {
-    const match = /^\*\*(.*)\*\*$/.exec(part);
-    return new TextRun({
-      text: match ? match[1] : part,
-      bold: Boolean(match),
-    });
-  });
-}
-
-function createDocxDocumentFromDraft(content: string) {
-  const paragraphs: Paragraph[] = [];
-  const lines = content.split(/\r?\n/);
-
-  // Ligne de séparation réutilisable
-  const horizontalRule = new Paragraph({
-    border: {
-      bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 },
-    },
-    spacing: { after: 200 },
-    children: [],
-  });
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.trim();
-
-    if (!line) {
-      paragraphs.push(new Paragraph({ spacing: { after: 100 } }));
-      return;
-    }
-
-    if (line.startsWith('# ')) {
-      // Titre principal — grand, gras, centré, souligné
-      paragraphs.push(
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 400, after: 200 },
-          children: [
-            new TextRun({
-              text: line.replace('# ', ''),
-              bold: true,
-              size: 36, // 18pt
-              color: "000000",
-              font: "Calibri",
-            }),
-          ],
-        })
-      );
-      paragraphs.push(horizontalRule);
-      return;
-    }
-
-    if (line.startsWith('## ')) {
-      // Section — gras, bordure gauche noire
-      paragraphs.push(
-        new Paragraph({
-          spacing: { before: 300, after: 120 },
-          border: {
-            left: { color: "000000", size: 12, style: BorderStyle.SINGLE, space: 8 },
-          },
-          indent: { left: 200 },
-          children: [
-            new TextRun({
-              text: line.replace('## ', ''),
-              bold: true,
-              size: 28, // 14pt
-              color: "000000",
-              font: "Calibri",
-            }),
-          ],
-        })
-      );
-      return;
-    }
-
-    if (line.startsWith('### ')) {
-      // Sous-section — gras, italique
-      paragraphs.push(
-        new Paragraph({
-          spacing: { before: 200, after: 80 },
-          children: [
-            new TextRun({
-              text: line.replace('### ', ''),
-              bold: true,
-              italics: true,
-              size: 24, // 12pt
-              color: "000000",
-              font: "Calibri",
-            }),
-          ],
-        })
-      );
-      return;
-    }
-
-    if (line.startsWith('- ')) {
-      // Bullet propre avec tiret
-      paragraphs.push(
-        new Paragraph({
-          spacing: { after: 80 },
-          indent: { left: 400, hanging: 200 },
-          children: [
-            new TextRun({
-              text: `– ${line.replace('- ', '')}`,
-              size: 22, // 11pt
-              color: "000000",
-              font: "Calibri",
-            }),
-          ],
-        })
-      );
-      // Section signatures
-  if (participants.length > 0) {
-    // Titre section
-    paragraphs.push(new Paragraph({
-      spacing: { before: 600, after: 200 },
-      border: {
-        bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 },
-      },
-      children: [new TextRun({
-        text: "SIGNATURES",
-        bold: true,
-        size: 28,
-        font: "Calibri",
-        color: "000000",
-      })],
-    }));
-
-    // Grille de signatures 2 par ligne
-    for (let i = 0; i < participants.length; i += 2) {
-      const left = participants[i];
-      const right = participants[i + 1];
-
-      const [leftName, leftRole] = left.split(" — ");
-      const [rightName, rightRole] = right ? right.split(" — ") : ["", ""];
-
-      // Noms
-      paragraphs.push(new Paragraph({
-        spacing: { before: 400, after: 60 },
-        children: [
-          new TextRun({ text: leftName, bold: true, size: 22, font: "Calibri" }),
-          new TextRun({ text: "\t\t\t\t", size: 22 }),
-          new TextRun({ text: rightName, bold: true, size: 22, font: "Calibri" }),
-        ],
-      }));
-
-      // Rôles
-      paragraphs.push(new Paragraph({
-        spacing: { after: 60 },
-        children: [
-          new TextRun({ text: leftRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }),
-          new TextRun({ text: "\t\t\t\t", size: 22 }),
-          new TextRun({ text: rightRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }),
-        ],
-      }));
-
-      // Ligne de signature
-      paragraphs.push(new Paragraph({
-        spacing: { after: 200 },
-        children: [
-          new TextRun({ text: "_______________________", size: 22, font: "Calibri" }),
-          new TextRun({ text: "\t\t\t\t", size: 22 }),
-          new TextRun({ text: rightName ? "_______________________" : "", size: 22, font: "Calibri" }),
-        ],
-      }));
-    }
-  }
-      return;
-    }
-
-    // Paragraphe normal
-    paragraphs.push(
-      new Paragraph({
-        spacing: { after: 100 },
-        children: getRunsFromLine(line),
-      })
-    );
-  });
-
-  return new DocxDocument({
-    styles: {
-      default: {
-        document: {
-          run: {
-            font: "Calibri",
-            size: 22, // 11pt
-            color: "000000",
-          },
-          paragraph: {
-            spacing: { line: 276, lineRule: LineRuleType.AUTO },
-          },
-        },
-      },
-    },
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: {
-              top: 1440,    // 2.54cm
-              bottom: 1440,
-              left: 1440,
-              right: 1440,
-            },
-          },
-        },
-        children: paragraphs,
-      },
-    ],
-  });
-}
 const handleDownloadDraftDocx = async () => {
   if (!document?.draftContent) return;
 
-  const doc = createDocxDocumentFromDraft(document.draftContent);
+  const doc = buildPVDocxDocument(document.draftContent, participants);
   const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = window.document.createElement('a');
@@ -463,9 +223,6 @@ function formatPVtoText(pv: any): string {
     if (point.discussion) {
       lines.push(point.discussion);
       lines.push('\n');
-    }
-    if (point.conclusion) {
-      lines.push(`**Conclusion :** ${point.conclusion}\n`);
     }
   });
 
@@ -649,7 +406,12 @@ function formatPVtoText(pv: any): string {
               </div>
               <div className="flex gap-2">
                 {!document?.draftContent && !isGenerating && (
-                  <Button onClick={handleGenerateDraft} className="gap-2">
+                  <Button
+                    onClick={handleGenerateDraft}
+                    className="gap-2"
+                    disabled={agendaItems.length === 0 || !agendaItems.some(a => a.isAnalyzed && a.isValidated)}
+                    title={agendaItems.length === 0 ? "Les ordres du jour ne sont pas encore chargés" : !agendaItems.some(a => a.isAnalyzed && a.isValidated) ? "Veuillez analyser et valider au moins un ordre du jour avant de générer le draft" : undefined}
+                  >
                     <Sparkles className="w-4 h-4" />
                     Générer le Draft
                   </Button>
@@ -677,7 +439,8 @@ function formatPVtoText(pv: any): string {
                       size="sm"
                       onClick={handleRegenerateDraft}
                       className="gap-2"
-                      disabled={isGenerating}
+                      disabled={isGenerating || !agendaItems.some(a => a.isAnalyzed && a.isValidated)}
+                      title={!agendaItems.some(a => a.isAnalyzed && a.isValidated) ? "Veuillez analyser et valider au moins un ordre du jour avant de régénérer" : undefined}
                     >
                       <RefreshCw className={cn('w-4 h-4', isGenerating && 'animate-spin')} />
                       Régénérer
@@ -709,9 +472,9 @@ function formatPVtoText(pv: any): string {
                     className="min-h-[500px] resize-none font-mono text-sm"
                   />
                 ) : (
-                  <ScrollArea className="h-[500px] border rounded-lg p-4">
-                    <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-                      {document.draftContent}
+                  <ScrollArea className="h-[500px] rounded-lg bg-neutral-200">
+                    <div className="py-8">
+                      <PVRenderer content={document.draftContent} />
                     </div>
                   </ScrollArea>
                 )}

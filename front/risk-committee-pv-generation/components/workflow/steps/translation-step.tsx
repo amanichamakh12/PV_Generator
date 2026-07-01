@@ -4,16 +4,13 @@ import { useState } from 'react';
 import { useWorkflow } from '@/contexts/workflow-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Document, AlignmentType } from 'docx';
-import { Document as DocxDoc} from 'docx';
-import { 
-  Languages, 
-  Sparkles, 
-  RefreshCw, 
+import {
+  Languages,
+  Sparkles,
+  RefreshCw,
   CheckCircle2,
   Download,
   Loader2,
@@ -22,7 +19,8 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { BorderStyle, LineRuleType, Packer, Paragraph, TextRun } from 'docx';
+import { Packer } from 'docx';
+import { buildPVDocxDocument } from '@/lib/pv-docx';
 import { PVRenderer } from './PVRenderer';
 
 const translatePV = async (content: string, targetLang: TranslationLang): Promise<string> => {
@@ -52,11 +50,20 @@ const translatePV = async (content: string, targetLang: TranslationLang): Promis
 
 type TranslationLang = 'arabic' | 'english';
 
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+
 export function TranslationStep() {
-  const { document, updateDocument, resetWorkflow } = useWorkflow();
+  const { document, updateDocument, resetWorkflow, sessionId } = useWorkflow();
   const [activeTab, setActiveTab] = useState<'french' | TranslationLang>('french');
   const [translatingLangs, setTranslatingLangs] = useState<Set<TranslationLang>>(new Set());
-  const [validatedTranslations, setValidatedTranslations] = useState<Set<TranslationLang>>(new Set());
+  const [validatedTranslations, setValidatedTranslations] = useState<Set<TranslationLang>>(() => {
+    const init = new Set<TranslationLang>();
+    if (document?.translations?.arabic) init.add('arabic');
+    if (document?.translations?.english) init.add('english');
+    return init;
+  });
+
+  const langCodeMap: Record<TranslationLang, string> = { arabic: 'ar', english: 'en' };
 
   const handleTranslate = async (lang: TranslationLang) => {
   if (!document?.finalContent) return;
@@ -64,13 +71,20 @@ export function TranslationStep() {
   setTranslatingLangs(prev => new Set([...prev, lang]));
 
   try {
-    const translation = await translatePV(document.finalContent, lang);  // ✅
+    const translation = await translatePV(document.finalContent, lang);
     updateDocument({
       translations: {
         ...document.translations,
         [lang]: translation,
       },
     });
+    if (sessionId) {
+      fetch(`${API}/api/sessions/${sessionId}/translations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: langCodeMap[lang], content: translation }),
+      }).catch(() => {});
+    }
   } catch (err: any) {
     console.error('Erreur traduction:', err);
   } finally {
@@ -98,17 +112,19 @@ export function TranslationStep() {
   };
 
   const handleValidateTranslation = (lang: TranslationLang) => {
-    setValidatedTranslations(prev => new Set([...prev, lang]));
-  };
-
-  const handleTranslationChange = (lang: TranslationLang, content: string) => {
-    updateDocument({
-      translations: {
-        ...document?.translations,
-        [lang]: content
+    setValidatedTranslations(prev => {
+      const next = new Set([...prev, lang]);
+      if (next.size === 1 && sessionId) {
+        fetch(`${API}/api/sessions/${sessionId}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'pv_final_translated' }),
+        }).catch(() => {});
       }
+      return next;
     });
   };
+
 
 const handleDownload = async (lang: 'french' | TranslationLang) => {
   let content = '';
@@ -127,7 +143,7 @@ const handleDownload = async (lang: 'french' | TranslationLang) => {
 
   if (!content) return;
 
-  const doc = createDocxDocumentFromDraft(content, document?.participants ?? []);
+  const doc = buildPVDocxDocument(content);
   const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = window.document.createElement('a');
@@ -138,90 +154,6 @@ const handleDownload = async (lang: 'french' | TranslationLang) => {
   window.document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
-
-function getRunsFromLine(line: string): TextRun[] {
-  const parts = line.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map(part =>
-    part.startsWith("**") && part.endsWith("**")
-      ? new TextRun({ text: part.slice(2, -2), bold: true, font: "Calibri", size: 22 })
-      : new TextRun({ text: part, font: "Calibri", size: 22 })
-  );
-}
-
-function createDocxDocumentFromDraft(content: string, participants: string[] = []) {
-  const paragraphs: Paragraph[] = [];
-  const lines = content.replace(/\\n/g, '\n').split(/\r?\n/);
-
-  const horizontalRule = new Paragraph({
-    border: { bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 } },
-    spacing: { after: 200 },
-    children: [],
-  });
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.trim();
-
-    if (!line) { paragraphs.push(new Paragraph({ spacing: { after: 100 } })); return; }
-
-    if (line === '---') {
-      paragraphs.push(new Paragraph({ border: { bottom: { color: "CCCCCC", size: 4, style: BorderStyle.SINGLE, space: 1 } }, spacing: { after: 200 }, children: [] }));
-      return;
-    }
-
-    if (line.startsWith('# ')) {
-      paragraphs.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 400, after: 200 }, children: [new TextRun({ text: line.replace('# ', ''), bold: true, size: 36, color: "000000", font: "Calibri" })] }));
-      paragraphs.push(horizontalRule);
-      return;
-    }
-
-    if (line.startsWith('## ')) {
-      paragraphs.push(new Paragraph({ spacing: { before: 300, after: 120 }, border: { left: { color: "000000", size: 12, style: BorderStyle.SINGLE, space: 8 } }, indent: { left: 200 }, children: [new TextRun({ text: line.replace('## ', ''), bold: true, size: 28, color: "000000", font: "Calibri" })] }));
-      return;
-    }
-
-    if (line.startsWith('### ')) {
-      paragraphs.push(new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: line.replace('### ', ''), bold: true, italics: true, size: 24, color: "000000", font: "Calibri" })] }));
-      return;
-    }
-
-    if (line.startsWith('- ')) {
-      paragraphs.push(new Paragraph({ spacing: { after: 80 }, indent: { left: 400, hanging: 200 }, children: [new TextRun({ text: `– ${line.replace('- ', '')}`, size: 22, color: "000000", font: "Calibri" })] }));
-      return;
-    }
-
-    if (line.startsWith('• ')) {
-      paragraphs.push(new Paragraph({ spacing: { after: 80 }, indent: { left: 600, hanging: 200 }, children: [new TextRun({ text: line, size: 22, color: "000000", font: "Calibri" })] }));
-      return;
-    }
-
-    if (/^\d+\.\s/.test(line)) {
-      paragraphs.push(new Paragraph({ spacing: { after: 80 }, indent: { left: 400 }, children: [new TextRun({ text: line, size: 22, color: "000000", font: "Calibri" })] }));
-      return;
-    }
-
-    paragraphs.push(new Paragraph({ spacing: { after: 100 }, children: getRunsFromLine(line) }));
-  });
-
-  // Section signatures
-  if (participants.length > 0) {
-    paragraphs.push(new Paragraph({ spacing: { before: 600, after: 200 }, border: { bottom: { color: "000000", size: 6, style: BorderStyle.SINGLE, space: 1 } }, children: [new TextRun({ text: "SIGNATURES", bold: true, size: 28, font: "Calibri", color: "000000" })] }));
-
-    for (let i = 0; i < participants.length; i += 2) {
-      const [leftName, leftRole] = participants[i].split(" — ");
-      const right = participants[i + 1];
-      const [rightName, rightRole] = right ? right.split(" — ") : ["", ""];
-
-      paragraphs.push(new Paragraph({ spacing: { before: 400, after: 60 }, children: [new TextRun({ text: leftName, bold: true, size: 22, font: "Calibri" }), new TextRun({ text: "\t\t\t\t", size: 22 }), new TextRun({ text: rightName, bold: true, size: 22, font: "Calibri" })] }));
-      paragraphs.push(new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: leftRole || "", italics: true, size: 20, font: "Calibri", color: "444444" }), new TextRun({ text: "\t\t\t\t", size: 22 }), new TextRun({ text: rightRole || "", italics: true, size: 20, font: "Calibri", color: "444444" })] }));
-      paragraphs.push(new Paragraph({ spacing: { after: 200 }, children: [new TextRun({ text: "_______________________", size: 22, font: "Calibri" }), new TextRun({ text: "\t\t\t\t", size: 22 }), new TextRun({ text: rightName ? "_______________________" : "", size: 22, font: "Calibri" })] }));
-    }
-  }
-
-  return new DocxDoc({
-    styles: { default: { document: { run: { font: "Calibri", size: 22, color: "000000" }, paragraph: { spacing: { line: 276, lineRule: LineRuleType.AUTO } } } } },
-    sections: [{ properties: { page: { margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 } } }, children: paragraphs }],
-  });
-}
 
   const handleDownloadAll = () => {
     handleDownload('french');

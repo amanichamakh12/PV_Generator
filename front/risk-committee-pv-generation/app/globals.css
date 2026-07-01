@@ -30,13 +30,13 @@
   --chart-4: oklch(0.55 0.2 330);
   --chart-5: oklch(0.6 0.15 200);
   --radius: 0.75rem;
-  --sidebar: oklch(0.2 0.04 250);
-  --sidebar-foreground: oklch(0.95 0 0);
-  --sidebar-primary: oklch(0.65 0.18 160);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.3 0.04 250);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(0.35 0.04 250);
+  --sidebar: #F7F9FC;                    /* fond de page (clair) */
+  --sidebar-foreground: #0D2748;          /* texte principal (bleu nuit) */
+  --sidebar-primary: #1B5E9B;             /* bleu du logo (boutons, icônes, accent) */
+  --sidebar-primary-foreground: #FFFFFF;  /* texte sur bouton bleu */
+  --sidebar-accent: #FFFFFF;              /* cartes (blanc) */
+  --sidebar-accent-foreground: #0D2748;          /* texte sur cartes */
+  --sidebar-border: #E2E8F0;              /* bordures claires */
   --sidebar-ring: oklch(0.65 0.18 160);
   
   /* Custom tokens for this app */
@@ -46,6 +46,13 @@
   --warning-foreground: oklch(0.2 0.02 80);
   --info: oklch(0.6 0.15 230);
   --info-foreground: oklch(0.98 0 0);
+
+  --sidebar-accent: #FFFFFF;              /* cartes (blanc) */
+  --sidebar-primary: #1B5E9B;             /* bleu du logo (boutons, icônes, accent) */
+  --sidebar-primary-foreground: #FFFFFF;  /* texte sur bouton bleu */
+  --sidebar-foreground: #0D2748;          /* texte principal (bleu nuit) */
+  --sidebar-border: #E2E8F0;              /* bordures claires */
+
 }
 
 .dark {
@@ -170,3 +177,4 @@
 .transition-theme {
   transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
+

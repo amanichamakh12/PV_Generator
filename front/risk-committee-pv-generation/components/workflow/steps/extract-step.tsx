@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useWorkflow } from '@/contexts/workflow-context';
+import { getApiBaseUrl } from '@/lib/pptx-import';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +23,8 @@ import {
   StickyNote,
   Table2,
   RotateCcw,
+  Loader2,
+  Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -41,7 +44,17 @@ function ChartIcon({ type }: { type?: string }) {
   return <BarChart2 className="w-4 h-4" />;
 }
 
-function ChartCard({ chart, index }: { chart: any; index: number }) {
+function ChartCard({
+  chart,
+  index,
+  editable = false,
+  onChartChange,
+}: {
+  chart: any;
+  index: number;
+  editable?: boolean;
+  onChartChange?: (chart: any) => void;
+}) {
   const series: any[] = chart.series || [];
   const categories: string[] = chart.categories || [];
 
@@ -72,23 +85,92 @@ function ChartCard({ chart, index }: { chart: any; index: number }) {
             )}
             <div className="space-y-1">
               {(serie.valeurs || []).map((val: number, vi: number) => {
-                const label = (serie.categories || categories)[vi] || `Item ${vi + 1}`;
+                const label = (serie.categories || categories)[vi] ?? '';
                 const max = Math.max(...(serie.valeurs || [1]));
                 const pct = max > 0 ? Math.round((val / max) * 100) : 0;
                 return (
                   <div key={vi} className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">{label}</span>
+                    {editable ? (
+                      <input
+                        value={label}
+                        onChange={e => {
+                          const newCategories = [...categories];
+                          newCategories[vi] = e.target.value;
+                          onChartChange?.({ ...chart, categories: newCategories });
+                        }}
+                        className="h-8 w-32 shrink-0 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/25"
+                        placeholder={`Catégorie ${vi + 1}`}
+                        aria-label={`Libellé ${vi + 1}`}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">
+                        {label || `Item ${vi + 1}`}
+                      </span>
+                    )}
                     <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-all"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <span className="text-xs font-medium w-10 text-right shrink-0">{val}</span>
+                    {editable ? (
+                      <input
+                        value={val}
+                        type="number"
+                        onChange={e => {
+                          const newSeries = series.map((s: any, idx: number) => {
+                            if (idx !== si) return s;
+                            const valeurs = [...(s.valeurs || [])];
+                            valeurs[vi] = Number(e.target.value);
+                            return { ...s, valeurs };
+                          });
+                          onChartChange?.({ ...chart, series: newSeries });
+                        }}
+                        className="h-8 w-20 shrink-0 rounded-md border bg-background px-2 text-right text-xs font-medium outline-none focus:ring-2 focus:ring-primary/25"
+                        aria-label={`Valeur ${vi + 1}`}
+                      />
+                    ) : (
+                      <span className="text-xs font-medium w-10 text-right shrink-0">{val}</span>
+                    )}
+                    {editable && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newCategories = categories.filter((_, i) => i !== vi);
+                          const newSeries = series.map((s: any) => ({
+                            ...s,
+                            valeurs: (s.valeurs || []).filter((_: any, i: number) => i !== vi),
+                          }));
+                          onChartChange?.({ ...chart, categories: newCategories, series: newSeries });
+                        }}
+                        className="shrink-0 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label={`Supprimer ligne ${vi + 1}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
+
+            {editable && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newCategories = [...categories, ''];
+                  const newSeries = series.map((s: any) => ({
+                    ...s,
+                    valeurs: [...(s.valeurs || []), 0],
+                  }));
+                  onChartChange?.({ ...chart, categories: newCategories, series: newSeries });
+                }}
+                className="mt-2 flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Ajouter une ligne
+              </button>
+            )}
           </div>
         ))}
 
@@ -148,14 +230,25 @@ function normalizeImagePayload(parsed: any, index: number) {
         return { label: String(item.x ?? ''), value: Number(item.y) };
       }
 
-      if ('label' in item || 'value' in item) {
+      // { label, value } — format standard
+      if ('label' in item && 'value' in item) {
         return { label: String(item.label ?? ''), value: Number(item.value) };
+      }
+
+      // { label, valeur } — format testSmolvlm
+      if ('label' in item && 'valeur' in item) {
+        return { label: String(item.label ?? ''), value: Number(item.valeur) };
+      }
+
+      // { category, valeur } — format SmolVLM service (entraîné)
+      if ('category' in item || 'valeur' in item) {
+        return { label: String(item.category ?? ''), value: Number(item.valeur) };
       }
 
       const [label, value] = Object.entries(item)[0] || [];
       return { label: String(label ?? ''), value: Number(value) };
     })
-    .filter((point: { label: string; value: number }) => point.label && Number.isFinite(point.value));
+    .filter((point: { label: string; value: number }) => point.label != null && Number.isFinite(point.value));
 
   if (points.length === 0) return parsed;
 
@@ -178,13 +271,18 @@ function normalizeImagePayload(parsed: any, index: number) {
 function imagePayloadFromNormalized(image: any, normalized: any) {
   const categories: string[] = normalized.categories || [];
   const values: number[] = normalized.series?.[0]?.valeurs || [];
+  // Format {category, valeur} attendu par le backend _format_image
+  const data = categories.map((label, i) => ({
+    category: label,
+    valeur: Number(values[i]) || 0,
+  }));
   const payload = {
     ...image,
+    titre: normalized.titre,   // override l'ancien titre SmolVLM
     title: normalized.titre,
+    type: normalized.type,
     chart_type: normalized.type,
-    data: categories.map((label, index) => ({
-      [label]: Number(values[index]) || 0,
-    })),
+    data,
     confidence: normalized.confidence,
     source: normalized.source,
     observations: normalized.observations || [],
@@ -192,7 +290,13 @@ function imagePayloadFromNormalized(image: any, normalized: any) {
 
   return {
     ...payload,
-    description: JSON.stringify(payload),
+    // description = JSON du chart mis à jour, lu par _format_image backend
+    description: JSON.stringify({
+      type: normalized.type,
+      titre: normalized.titre,
+      data,
+      observations: normalized.observations || [],
+    }),
   };
 }
 
@@ -225,33 +329,30 @@ function ImageCard({
     else if (parsed.data && Array.isArray(parsed.data)) {
       const items = parsed.data.filter((d: any) => d !== null);
 
-      const isXY =
-        items.length > 0 &&
-        'x' in items[0] &&
-        'y' in items[0];
+      const isXY       = items.length > 0 && 'x' in items[0] && 'y' in items[0];
+      // { category, valeur } service SmolVLM  OU  { label, valeur } testSmolvlm
+      const usesValeur = items.length > 0 && 'valeur' in items[0];
+      const labelKey   = usesValeur
+        ? ('category' in items[0] ? 'category' : 'label')
+        : 'label';
 
       const categories = isXY
         ? items.map((d: any) => String(d.x))
-        : items
-            .filter((d: any) => d.value !== null)
-            .map((d: any) => String(d.label));
+        : usesValeur
+          ? items.map((d: any) => String(d[labelKey] ?? ''))
+          : items.filter((d: any) => d.value != null).map((d: any) => String(d.label));
 
       const valeurs = isXY
         ? items.map((d: any) => Number(d.y))
-        : items
-            .filter((d: any) => d.value !== null)
-            .map((d: any) => Number(d.value));
+        : usesValeur
+          ? items.map((d: any) => Number(d.valeur))
+          : items.filter((d: any) => d.value != null).map((d: any) => Number(d.value));
 
       normalized = {
-        titre: parsed.title || `Graphique image ${index + 1}`,
-        type: parsed.chart_type || 'Inconnu',
+        titre: parsed.titre || parsed.title || `Graphique image ${index + 1}`,
+        type: parsed.type || parsed.chart_type || 'Inconnu',
         categories,
-        series: [
-          {
-            nom: '',
-            valeurs,
-          },
-        ],
+        series: [{ nom: '', valeurs }],
         observations: parsed.observations || [],
         confidence: parsed.confidence,
       };
@@ -360,9 +461,45 @@ function ImageCard({
                         {val}
                       </span>
                     )}
+
+                    {editable && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const categories = (normalized.categories || []).filter((_: any, i: number) => i !== vi);
+                          const series = [...(normalized.series || [])];
+                          const currentSerie = series[si] || { nom: '', valeurs: [] };
+                          const valeurs = (currentSerie.valeurs || []).filter((_: any, i: number) => i !== vi);
+                          series[si] = { ...currentSerie, valeurs };
+                          updateNormalized({ ...normalized, categories, series });
+                        }}
+                        className="shrink-0 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label={`Supprimer ligne ${vi + 1}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 );
               })}
+
+              {editable && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const categories = [...(normalized.categories || []), ''];
+                    const series = [...(normalized.series || [])];
+                    const currentSerie = series[si] || { nom: '', valeurs: [] };
+                    const valeurs = [...(currentSerie.valeurs || []), 0];
+                    series[si] = { ...currentSerie, valeurs };
+                    updateNormalized({ ...normalized, categories, series });
+                  }}
+                  className="mt-1 flex items-center gap-1.5 text-xs text-primary hover:underline"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter une ligne
+                </button>
+              )}
             </div>
           ))}
 
@@ -401,6 +538,63 @@ function ImageCard({
   );
 }
 
+// ─── save helpers ────────────────────────────────────────────────────────────
+
+function buildChartDataForSave(img: any) {
+  const parsed = parseImageDescription(img?.description) || img;
+  const normalized = normalizeImagePayload(parsed, 0);
+  if (!normalized?.categories) return null;
+
+  const categories: string[] = normalized.categories || [];
+  const valeurs: number[] = normalized.series?.[0]?.valeurs || [];
+
+  return {
+    chart_title: normalized.titre || img.titre || img.title || null,
+    chart_type: normalized.type || img.type || img.chart_type || null,
+    chart_data: {
+      type: normalized.type || img.type || img.chart_type,
+      titre: normalized.titre || img.titre || img.title,
+      data: categories.map((cat, i) => ({ category: cat, valeur: valeurs[i] ?? 0 })),
+      confidence: normalized.confidence,
+      source: normalized.source || 'smolvlm',
+      db_id: img.db_id,
+    },
+  };
+}
+
+function buildNativeChartForSave(chart: any) {
+  return {
+    chart_title: chart.titre || chart.title || null,
+    chart_type: chart.type || null,
+    chart_data: chart,
+  };
+}
+
+async function patchChart(chartId: number, slideDbId: number | undefined, payload: object) {
+  const body = slideDbId != null ? { ...payload, slide_id: slideDbId } : payload;
+  const res = await fetch(`${getApiBaseUrl()}/api/slide-charts/${chartId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => res.statusText);
+    throw new Error(`Erreur sauvegarde chart ${chartId} : ${msg}`);
+  }
+}
+
+async function patchTable(tableId: number, tableData: object) {
+  const res = await fetch(`${getApiBaseUrl()}/api/slide-tables/${tableId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table_data: tableData }),
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => res.statusText);
+    throw new Error(`Erreur sauvegarde table ${tableId} : ${msg}`);
+  }
+}
+
 // ─── main component ──────────────────────────────────────────────────────────
 
 function isImagePending(image: any) {
@@ -428,6 +622,7 @@ export function ExtractStep() {
   } = useWorkflow();
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(slides[0]?.id || null);
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
+  const [isSaving, setIsSaving] = useState<Record<string, boolean>>({});
 
   const selectedSlide = slides.find(s => s.id === selectedSlideId);
 
@@ -471,9 +666,74 @@ export function ExtractStep() {
     updateSlide(slideId, { images });
   };
 
-  const toggleEditMode = (slideId: string) => {
-    setEditMode(prev => ({ ...prev, [slideId]: !prev[slideId] }));
+  const handleChartChange = (slideId: string, chartIndex: number, chart: any) => {
+    const slide = slides.find(s => s.id === slideId);
+    if (!slide) return;
+
+    const charts = [...(slide.charts || [])];
+    charts[chartIndex] = chart;
+    updateSlide(slideId, { charts });
   };
+
+  const toggleEditMode = useCallback(async (slideId: string) => {
+    const isCurrentlyEditing = editMode[slideId];
+
+    if (isCurrentlyEditing) {
+      const slide = slides.find(s => s.id === slideId);
+      if (slide) {
+        setIsSaving(prev => ({ ...prev, [slideId]: true }));
+        try {
+          const tasks: Promise<void>[] = [];
+
+          const slideDbId: number | undefined = (slide as any)?.db_id;
+
+          // Sauvegarder le contenu texte
+          if (slideDbId && slide.extractedContent != null) {
+            tasks.push(
+              fetch(`${getApiBaseUrl()}/api/slides/${slideDbId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contenu: slide.extractedContent }),
+              }).then(res => {
+                if (!res.ok) throw new Error(`Erreur sauvegarde slide ${slideDbId}`);
+              })
+            );
+          }
+
+          // Sauvegarder les images IA extraites
+          for (const img of slide.images || []) {
+            const dbId = (img as any)?.db_id;
+            if (!dbId || (img as any)?.status !== 'done') continue;
+            const payload = buildChartDataForSave(img);
+            if (payload) tasks.push(patchChart(dbId, slideDbId, payload));
+          }
+
+          // Sauvegarder les graphiques natifs
+          for (const chart of slide.charts || []) {
+            const dbId = (chart as any)?.db_id;
+            if (!dbId) continue;
+            tasks.push(patchChart(dbId, slideDbId, buildNativeChartForSave(chart)));
+          }
+
+          // Sauvegarder les tableaux
+          for (const table of slide.tables || []) {
+            const dbId = (table as any)?.db_id;
+            if (!dbId) continue;
+            const { db_id: _id, ...tableData } = table as any;
+            tasks.push(patchTable(dbId, tableData));
+          }
+
+          await Promise.all(tasks);
+        } catch (err) {
+          console.error('Erreur sauvegarde graphiques :', err);
+        } finally {
+          setIsSaving(prev => ({ ...prev, [slideId]: false }));
+        }
+      }
+    }
+
+    setEditMode(prev => ({ ...prev, [slideId]: !prev[slideId] }));
+  }, [editMode, slides]);
 
   const getAgendaTitle = (agendaItemId: string) =>
     agendaItems.find(a => a.id === agendaItemId)?.title || 'Non classé';
@@ -598,11 +858,16 @@ export function ExtractStep() {
                     variant={editMode[selectedSlide.id] ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => toggleEditMode(selectedSlide.id)}
+                    disabled={isSaving[selectedSlide.id]}
                     className="gap-2"
                   >
-                    {editMode[selectedSlide.id]
-                      ? <><Save className="w-4 h-4" />Sauvegarder</>
-                      : <><Edit3 className="w-4 h-4" />Modifier</>}
+                    {isSaving[selectedSlide.id] ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" />Sauvegarde…</>
+                    ) : editMode[selectedSlide.id] ? (
+                      <><Save className="w-4 h-4" />Sauvegarder</>
+                    ) : (
+                      <><Edit3 className="w-4 h-4" />Modifier</>
+                    )}
                   </Button>
                   <Button
                     variant="destructive"
@@ -638,11 +903,14 @@ export function ExtractStep() {
                   </div>
 
                   {/* ── Text blocks ── */}
-                  {(selectedSlide.contentBlocks?.length ?? 0) > 0 && (
+                  {((selectedSlide.contentBlocks?.length ?? 0) > 0 || !!selectedSlide.extractedContent) && (
                     <section>
                       <SectionTitle icon={<FileText className="w-4 h-4" />} title="Blocs de texte" />
                       <div className="space-y-2 mt-3">
-                        {selectedSlide.contentBlocks!.map((block, i) => (
+                        {(selectedSlide.extractedContent
+                          ? selectedSlide.extractedContent.split('\n').filter(Boolean)
+                          : selectedSlide.contentBlocks ?? []
+                        ).map((block, i) => (
                           <div key={i} className="px-4 py-2 bg-muted/30 border rounded-lg text-sm">
                             {block}
                           </div>
@@ -716,7 +984,13 @@ export function ExtractStep() {
                       <SectionTitle icon={<BarChart2 className="w-4 h-4" />} title={`Graphiques (${selectedSlide.charts!.length})`} />
                       <div className="space-y-4 mt-3">
                         {selectedSlide.charts!.map((chart, i) => (
-                          <ChartCard key={i} chart={chart} index={i} />
+                          <ChartCard
+                            key={i}
+                            chart={chart}
+                            index={i}
+                            editable={editMode[selectedSlide.id]}
+                            onChartChange={updated => handleChartChange(selectedSlide.id, i, updated)}
+                          />
                         ))}
                       </div>
                     </section>
@@ -727,7 +1001,7 @@ export function ExtractStep() {
                     <section>
                       <SectionTitle
                         icon={<ImageIcon className="w-4 h-4" />}
-                        title={`Images analysées (${selectedSlide.images!.length})`}
+                        title={`Images detectées (${selectedSlide.images!.length})`}
                       />
                       <div className="space-y-4 mt-3">
                         {selectedSlide.images!.map((img, i) => {
@@ -736,11 +1010,16 @@ export function ExtractStep() {
                             : false;
                           const streaming = isImageStreaming(img) || analyzing;
 
+                          const graphName = img?.titre
+                            ? String(img.titre)
+                            : undefined;
+
                           if (streaming) {
                             return (
                               <StreamingImageCard
                                 key={i}
                                 index={i}
+                                name={graphName}
                                 streamText={String(img?.streamText || '')}
                                 statusMessage={String(img?.streamStatus || '')}
                                 starting={!img?.streamText}
@@ -753,6 +1032,7 @@ export function ExtractStep() {
                               <PendingImageCard
                                 key={i}
                                 index={i}
+                                name={graphName}
                                 canAnalyze={!!imageExtraction.token}
                                 onAnalyze={() =>
                                   runSingleImageAnalysis(selectedSlide.slideNumber, i)

@@ -4,7 +4,6 @@ import { useWorkflow } from '@/contexts/workflow-context';
 import {
   Upload,
   FileSearch,
-  Layers,
   ListChecks,
   FileText,
   MessageSquare,
@@ -28,7 +27,9 @@ const steps: { id: WorkflowStep; label: string; icon: React.ReactNode; descripti
 
 export function WorkflowStepper() {
   const { currentStep, setCurrentStep } = useWorkflow();
-  
+
+  if (currentStep === 'home' || currentStep === 'dashboard') return null;
+
   const currentStepIndex = steps.findIndex(s => s.id === currentStep);
 
   return (

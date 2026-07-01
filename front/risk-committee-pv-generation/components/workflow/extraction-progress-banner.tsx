@@ -27,15 +27,18 @@ export function ImageAnalysisSummary({
 
 export function PendingImageCard({
   index,
+  name,
   onAnalyze,
   canAnalyze = true,
   isDone = false,
 }: {
   index: number;
+  name?: string;
   onAnalyze?: () => void;
   canAnalyze?: boolean;
   isDone?: boolean;
 }) {
+  const label = name || `Graphique ${index + 1}`;
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 border rounded-xl bg-muted/20 border-dashed">
       <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -43,11 +46,11 @@ export function PendingImageCard({
           <ImageIcon className="w-5 h-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium">Image {index + 1}</p>
+          <p className="text-sm font-medium">{label}</p>
           <p className="text-xs text-muted-foreground">
             {isDone
-              ? 'Analyse terminée — vous pouvez relancer si besoin'
-              : 'Graphique détecté — lancez l\'analyse Ollama pour cette image uniquement'}
+              ? 'Extraction terminée — vous pouvez relancer si besoin'
+              : 'Graphique image détecté — cliquez pour extraire les données avec l\'IA'}
           </p>
         </div>
       </div>
@@ -66,7 +69,7 @@ export function PendingImageCard({
         ) : (
           <>
             <Play className="w-4 h-4" />
-            Analyser
+            Extraire IA
           </>
         )}
       </Button>
@@ -85,22 +88,25 @@ function formatStreamPreview(text: string) {
 
 export function StreamingImageCard({
   index,
+  name,
   streamText,
   statusMessage,
   starting = false,
 }: {
   index: number;
+  name?: string;
   streamText: string;
   statusMessage?: string;
   starting?: boolean;
 }) {
   const display = formatStreamPreview(streamText);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const label = name || `Graphique ${index + 1}`;
   const subtitle =
     statusMessage ||
     (starting && !streamText
-      ? 'Connexion à Ollama…'
-      : 'Réponse en cours — affichage progressif');
+      ? 'Initialisation SmolVLM…'
+      : 'Extraction en cours — inférence IA');
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -112,7 +118,7 @@ export function StreamingImageCard({
       <div className="flex items-center gap-2 px-4 py-3 border-b bg-info/5">
         <Sparkles className="w-4 h-4 text-info animate-pulse" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold">Image {index + 1}</p>
+          <p className="text-sm font-semibold">{label}</p>
           <p className="text-xs text-muted-foreground">{subtitle}</p>
         </div>
         <Badge variant="secondary" className="text-xs shrink-0 gap-1">
@@ -134,8 +140,7 @@ export function StreamingImageCard({
             </div>
             {!display && (
               <p className="text-[11px] leading-relaxed pl-6 opacity-80">
-                Sur CPU avec le modèle 3b, comptez ~30 s avant le premier token
-                (chargement + analyse de l&apos;image).
+              Extraction de l'image en cours. Cela peut prendre quelques secondes selon la taille de l'image et la complexité du graphique.
               </p>
             )}
           </div>

@@ -13,93 +13,168 @@ Le module reste autonome :
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:0.6b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+LLAMA_MODEL_PATH = os.environ.get("LLAMA_MODEL_PATH", "IA_modeles/qwen2.5-1.5b-instruct-q4_k_m.gguf")
+_llama_model = None
+
+
 
 SLIDE_PARAGRAPH_SYSTEM = """
-Tu es un rédacteur de procès-verbaux officiels pour un comité bancaire.
-
-Ta tâche : rédiger UN SEUL paragraphe de compte rendu à partir des données d'une slide.
+Tu es rédacteur de procès-verbaux bancaires. Rédige UN paragraphe en français administratif.
 
 RÈGLES ABSOLUES :
-- Rédige en français administratif, style factuel et neutre
-- N'utilise QUE les données fournies, sans invention
-- Intègre les chiffres des tableaux et graphiques dans la prose
-- Le paragraphe doit être continu, sans tirets, sans puces, sans listes
-- N'écris JAMAIS de JSON, de tableau, de symbole | dans ta réponse
-- N'écris JAMAIS les mots "slide", "tableau", "colonne", "JSON", "graphique" dans le paragraphe
-- Commence directement par le contenu, pas par une introduction méta
+1. Chaque valeur numérique reçue DOIT apparaître dans le paragraphe, 
+   rattachée à son libellé exact — aucune donnée ne peut être omise
+2. Toute variation (positive ou négative) DOIT être mentionnée et qualifiée
+3. Pour un bilan : deux phrases obligatoires — une sur l'actif, une sur le passif
+4. Pour un camembert : citer tous les segments du plus grand au plus petit
+5. Un risque n'est valide que s'il est justifié par un chiffre extrait
+6. Minimum 5 phrases, prose continue, sans listes ni tirets
+7. 3ème personne, ton formel
+8. Interdit : slide, tableau, graphique, JSON, image, "croits"
 
-STYLE ATTENDU (exemple) :
-"Au cours de ce point, le Comité a examiné l'évolution des engagements sur la période T1 2025.
-Le portefeuille global affiche une progression de +3.6%, atteignant 4 512 MMAD. Les Grandes
-Entreprises demeurent le segment dominant avec 2 078 MMAD, en hausse de +4.6% par rapport
-au trimestre précédent. Le segment Immobilier enregistre également une progression notable
-de +3.7%, portant l'exposition à 477 MMAD."
+EXEMPLE :
+Données :
+  Passif — Dépôts Clients : 43% / Dettes LT : 26% / Dettes CT : 11% / FP : 15% / Autres : 5%
+  Actif  — Crédits Clients : 2 650 M / Titres : 890 M / Trésorerie : 480 M
+  KPIs   — Total Actif : 4 820 M (+6,2%) / FP : 712 M (+3,8%) / Dettes LT : 1 240 M (-2,1%)
 
-FORMAT DE SORTIE — JSON strict, rien d'autre :
-{
-  "paragraphe": "texte rédigé en prose continue, chiffres intégrés naturellement",
-  "points_cles": ["constat factuel 1", "constat factuel 2", "constat factuel 3"],
-  "elements_actionnables": ["action concrète si mentionnée dans les données"]
+=> {
+  "paragraphe": "Dans le cadre de l'ordre du jour relatif à l'analyse du bilan, 
+  les membres du comité ont pris connaissance de la structure financière au titre 
+  du premier trimestre 2025. Le total du bilan s'établit à 4 820 M, en progression 
+  de 6,2%, porté principalement par les Crédits Clients qui constituent le premier 
+  poste de l'actif avec 2 650 M, suivis des Titres (890 M) et de la Trésorerie 
+  (480 M). S'agissant de la structure du passif, les Dépôts Clients en constituent 
+  la composante dominante avec 43%, suivis des Dettes Long Terme (26%), des Fonds 
+  Propres (15%), des Dettes Court Terme (11%) et des Autres postes (5%). Les Fonds 
+  Propres atteignent 712 M en hausse de 3,8%, portant le ratio FP/Actif à 14,8%. 
+  Le comité a relevé que les Dettes Long Terme s'inscrivent en baisse de 2,1% 
+  à 1 240 M, ce qui appelle une vigilance accrue quant au renouvellement des 
+  ressources longues.",
+  "points_cles": [
+    "Total Actif : 4 820 M (+6,2%)",
+    "Crédits Clients : 2 650 M (1er poste actif)",
+    "Dépôts Clients : 43% du passif",
+    "Fonds Propres : 712 M (+3,8%) — ratio 14,8%",
+    "Dettes LT : 1 240 M (-2,1%)"
+  ],
+  "elements_actionnables": [
+    "Surveiller le renouvellement des Dettes LT en baisse (-2,1%)",
+    "Assurer un suivi de la dynamique des Crédits Clients"
+  ]
 }
+
+Retourne UNIQUEMENT le JSON, sans texte avant ni après.
 """.strip()
-
-
 AGENDA_ANALYSIS_SYSTEM = """
-Tu produis une analyse par ordre du jour a partir d'un ensemble de paragraphes
-de slides deja rediges.
-Contraintes :
-- ne rien inventer ;
-- relier les informations entre slides ;
-- mettre en avant constats, tendances, alertes, decisions implicites et suites a donner ;
-- style administratif et analytique ;
-- sortie JSON stricte.
- 
-Format attendu :
-{
-  "analyse": "paragraphe d analyse consolidee sur l ensemble des slides de cet ordre du jour. Met en avant les constats, tendances, alertes, decisions implicites et suites a donner.",
-  "constats": ["constat 1", "constat 2"],
-  "risques": ["risque 1", "risque 2"],
-  "actions_suggerees": ["action 1", "action 2"]
-}
-""".strip()
+Tu es analyste risque bancaire senior. Synthétise les slides en JSON strict.
 
+RÈGLES :
+- Chiffres exacts uniquement, chaque chiffre rattaché à son libellé source
+- Maximum : 3 constats, 2 risques, 2 actions, aucune répétition
+- Si tableau Stage : calcule part ECL/encours et signale toute disproportion
+
+PARAGRAPHE PV :
+- Minimum 8 phrases, prose administrative continue, 3ème personne
+- Structure : présentation → constats chiffrés → risques → recommandations
+- Tournures : "Les membres du comité ont pris connaissance...", "Il a été relevé que...", "Le comité a recommandé..."
+- Interdit : slide, tableau, graphique, JSON, "données précédentes"
+- Période de référence inconnue → écrire "par rapport à la période précédente"
+
+EXEMPLE :
+Données : Bilan total 4 820 M (+6,2%) / Fonds Propres 712 M (+3,8%) / Dettes CT 43% / Dettes LT 26%
+=> {"analyse": "Le bilan total s'établit à 4 820 M (+6,2%). Les Fonds Propres atteignent 712 M (+3,8%). Les Dettes CT dominent le passif à 43%.", "constats": ["Bilan total : 4 820 M (+6,2%)", "Fonds Propres : 712 M (+3,8%)", "Dettes CT : 43% du passif"], "risques": ["Concentration des Dettes CT à 43%", "Pression sur la liquidité court terme"], "actions_suggerees": ["Renforcer le suivi des Dettes CT", "Analyser la dynamique des Fonds Propres"], "paragraphe_pv": "Dans le cadre de l'ordre du jour relatif à l'analyse du bilan, les membres du comité ont pris connaissance de la structure financière au titre du premier trimestre 2025. La présentation a mis en évidence un bilan total de 4 820 M, en progression de 6,2% par rapport à la période précédente, traduisant une dynamique de croissance notable. S'agissant de la structure du passif, il a été relevé que les Dettes Court Terme représentent la composante dominante avec 43% du total, suivies des Dettes Long Terme à hauteur de 26%. Les Fonds Propres s'établissent à 712 M, en hausse de 3,8%, témoignant d'un renforcement progressif de la base capitalistique. Le comité a noté que cette structure soulève des interrogations quant à la concentration des engagements à court terme et à ses implications en matière de liquidité. Il a été recommandé un renforcement du dispositif de suivi des Dettes CT ainsi qu'une analyse approfondie de la dynamique des Fonds Propres. Le comité a pris acte de ces éléments et invité les équipes concernées à présenter un plan de suivi lors de la prochaine séance."}
+
+Retourne UNIQUEMENT :
+{"analyse": "...", "constats": ["..."], "risques": ["..."], "actions_suggerees": ["..."], "paragraphe_pv": "..."}
+""".strip()
+def _get_llama_model():
+    global _llama_model
+    if _llama_model is None:
+        from llama_cpp import Llama
+        logger.info("[LLM] Chargement modèle llama-cpp: %s", LLAMA_MODEL_PATH)
+        _llama_model = Llama(
+            model_path=LLAMA_MODEL_PATH,
+            n_ctx=4096,
+            n_threads=os.cpu_count() or 4,
+            verbose=False,
+        )
+        logger.info("[LLM] Modèle llama-cpp chargé ✓")
+    return _llama_model
+def _post_llama_cpp_json(system: str, prompt: str, max_tokens: int = 1200) -> dict[str, Any] | None:
+    try:
+        llm = _get_llama_model()
+        response = llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        raw = response["choices"][0]["message"]["content"].strip()
+        logger.debug("[LLM llama_cpp RAW] %s", raw[:300])
+        if not raw:
+            logger.warning("[LLM llama_cpp] Réponse vide")
+            return None
+        return _extract_json_object(raw)
+    except Exception as exc:
+        logger.error("[LLM llama_cpp] Erreur: %s", exc)
+        return None
 def _post_ollama_json(system: str, prompt: str, max_tokens: int = 1200) -> dict[str, Any] | None:
+    # /no_think désactive le mode thinking de Qwen3 (sans effet sur Qwen2.5)
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": (
-            f"[INST] <<SYS>>\n{system}\n<</SYS>>\n\n"
-            f"{prompt}\n\n"
-            "Retourne UNIQUEMENT le JSON demandé, sans texte avant ni après. [/INST]"
-        ),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{prompt}\n\n/no_think"},
+        ],
         "stream": False,
-        "format": "json",  # ← force Ollama à sortir du JSON
+        "format": "json",
         "options": {
-            "temperature": 0.1,
+            "temperature": 0.0,
             "num_predict": max_tokens,
         },
     }
 
+    logger.debug("[LLM] Prompt envoyé (extrait): %s", prompt[:300])
+
     try:
-        response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
+        response = requests.post(
+            f"{OLLAMA_URL}/api/chat",
+            json=payload,
+        )
         response.raise_for_status()
-        raw = response.json().get("response", "").strip()
-        print(f"[LLM RAW] {raw[:200]}")   # ← ajoute ça
+        raw = response.json().get("message", {}).get("content", "").strip()
+        done_reason = response.json().get("done_reason", "?")
+        print(f"[LLM RAW] done_reason={done_reason}  raw[:500]={raw[:500]}")
         if not raw:
-            print("[LLM] Réponse vide")   # ← et ça
+            print("[LLM] Réponse vide")
             return None
         result = _extract_json_object(raw)
-        print(f"[LLM PARSED] {result}")   # ← et ça
+        if result is None:
+            print(f"[LLM] JSON parse échoué. Raw complet:\n{raw}")
         return result
-    except Exception as e:
-        print(f"[LLM ERROR] {e}")          # ← et ça
+    except requests.exceptions.ConnectionError as exc:
+        logger.error("[LLM] Ollama inaccessible: %s", exc)
+        return None
+    except requests.exceptions.RequestException as exc:
+        logger.error("[LLM] Erreur HTTP Ollama: %s", exc)
+        return None
+    except json.JSONDecodeError as exc:
+        logger.error("[LLM] Erreur parsing JSON réponse Ollama: %s", exc)
         return None
 
 def _extract_json_object(raw: str) -> dict[str, Any] | None:
@@ -107,20 +182,54 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
     if not raw:
         return None
 
+    # Stratégie 1 : parse direct
     try:
-        return json.loads(raw)
+        result = json.loads(raw)
+        return result if isinstance(result, dict) else None
     except json.JSONDecodeError:
         pass
 
+    # Stratégie 2 : strip blocs markdown ```json ... ```
+    text = raw
+    for fence in ("```json", "```JSON", "```"):
+        if text.startswith(fence):
+            text = text[len(fence):]
+            break
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+    try:
+        result = json.loads(text)
+        return result if isinstance(result, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    # Stratégie 3 : trouver le dernier bloc {...}
     start = raw.find("{")
     end = raw.rfind("}")
     if start == -1 or end == -1 or end <= start:
         return None
 
+    candidate = raw[start:end + 1]
     try:
-        return json.loads(raw[start : end + 1])
+        return json.loads(candidate)
     except json.JSONDecodeError:
-        return None
+        pass
+
+    # Stratégie 4 : réparer les accolades manquantes
+    n_open = candidate.count("{")
+    n_close = candidate.count("}")
+    if n_open > n_close:
+        repaired = candidate + "}" * (n_open - n_close)
+        try:
+            result = json.loads(repaired)
+            logger.info("[LLM] JSON réparé (accolades manquantes ajoutées)")
+            return result if isinstance(result, dict) else None
+        except json.JSONDecodeError:
+            pass
+
+    logger.warning("[LLM] Impossible d'extraire un JSON valide. Brut: %r", raw[:300])
+    return None
 
 
 def _compact_text_list(items: list[Any]) -> list[str]:
@@ -175,11 +284,10 @@ def _build_slide_payload(slide: dict[str, Any]) -> dict[str, Any]:
     }
 
 def _format_image(image: Any) -> str:
-    """Parse une image Groq/OCR et retourne un résumé texte lisible."""
+    """Parse une image SmolVLM/Groq/OCR et retourne un résumé texte lisible."""
     if isinstance(image, str):
         raw = image
     elif isinstance(image, dict):
-        # Image analysée par Groq : extraire la description JSON
         description = image.get("description") or ""
         raw = description
     else:
@@ -193,26 +301,35 @@ def _format_image(image: Any) -> str:
             raw = raw[4:]
         raw = raw.strip()
 
-    # Tente de parser le JSON extrait par Groq
     try:
         data = json.loads(raw)
-        titre      = data.get("titre") or data.get("title") or "Graphique"
-        categories = data.get("categories") or []
-        series     = data.get("series") or []
+        titre        = data.get("titre") or data.get("title") or "Graphique"
+        categories   = data.get("categories") or []
+        series       = data.get("series") or []
         observations = data.get("observations") or []
+        # Format SmolVLM : data = [{category, valeur}]
+        smolvlm_data = data.get("data") or []
 
         parts = [f"Graphique : {titre}"]
+
+        # Format natif (categories + series)
         for serie in series:
-            nom     = serie.get("nom", "")
             valeurs = serie.get("valeurs", [])
             for cat, val in zip(categories, valeurs):
                 parts.append(f"  {cat} : {val}")
+
+        # Format SmolVLM
+        for point in smolvlm_data:
+            cat = point.get("category") or point.get("categorie") or ""
+            val = point.get("valeur") or point.get("value") or ""
+            if cat:
+                parts.append(f"  {cat} : {val}")
+
         if observations:
             parts.append("Observations : " + " ; ".join(observations))
 
         return "\n".join(parts)
     except (json.JSONDecodeError, Exception):
-        # Si pas du JSON, retourne le texte brut nettoyé
         return raw[:300] if raw else ""
 
 def _heuristic_slide_paragraph(payload: dict[str, Any]) -> dict[str, Any]:
@@ -251,10 +368,11 @@ def _heuristic_slide_paragraph(payload: dict[str, Any]) -> dict[str, Any]:
 
 def generate_slide_paragraph(slide: dict[str, Any]) -> dict[str, Any]:
     payload = _build_slide_payload(slide)
-    llm_result = _post_ollama_json(
+    llm_result = _post_llama_cpp_json(
         SLIDE_PARAGRAPH_SYSTEM,
-            "Donnees slide:\n" + json.dumps(payload, ensure_ascii=False, indent=2),
-        )
+        "Donnees slide:\n" + json.dumps(payload, ensure_ascii=False, indent=2),
+        max_tokens=500,
+    )
     if llm_result and llm_result.get("paragraphe"):
             return {
                 "slide_index": payload.get("index"),
@@ -308,64 +426,135 @@ def group_slide_paragraphs_by_agenda(slide_paragraphs: list[dict[str, any]]) -> 
     return list(grouped.values())
 
 
+def _format_image_for_prompt(img: dict) -> str:
+    """
+    Formate une image analysée en texte lisible pour le prompt LLM.
+    Gère deux formats :
+      - SmolVLM  : {"type", "titre", "data": [{"category": ..., "valeur": ...}]}
+      - Groq/OCR : {"type", "titre", "categories": [...], "series": [...], "observations": [...]}
+    """
+    type_  = img.get("type", "inconnu")
+    titre  = img.get("titre", "")
+
+    # Format SmolVLM — données dans "data": [{category, valeur}]
+    data = img.get("data") or []
+    if data and isinstance(data, list) and isinstance(data[0], dict) and "category" in data[0]:
+        data_text = ", ".join(
+            f"{d.get('category')}: {d.get('valeur')}"
+            for d in data[:12]
+            if d.get("category") is not None
+        )
+        return f"- Graphique {type_} « {titre} » : {data_text}"
+
+    # Format Groq / OCR — categories + series + observations
+    categories   = img.get("categories") or []
+    series       = img.get("series") or []
+    observations = img.get("observations") or []
+
+    parts = [f"- Graphique type={type_} titre={titre}"]
+    if categories:
+        parts.append(f"  catégories={categories}")
+    for serie in series:
+        nom     = serie.get("nom", "")
+        valeurs = serie.get("valeurs", [])
+        pairs   = ", ".join(f"{c}: {v}" for c, v in zip(categories, valeurs))
+        parts.append(f"  série {nom}=[{pairs}]")
+    if observations:
+        parts.append("  observations=" + " ; ".join(observations))
+
+    return "\n".join(parts)
+
+
 def build_agenda_analysis_input(agenda_group: dict[str, any]) -> str:
     slides_list = agenda_group.get("slides", [])
     if isinstance(slides_list, dict):
         slides_list = [slides_list]
 
-    slides = ", ".join(
-        f"{slide.get('index')}:{slide.get('titre') or 'Sans titre'}"
-        for slide in slides_list
-    )
-    images_text = "\n".join(
-    f"- Graphique type={img.get('type', 'inconnu')} titre={img.get('titre', '')} "
-    f"categories={img.get('categories', [])} "
-    f"series={img.get('series', [])} "
-    f"observations={img.get('observations', [])}"
-    for slide in slides_list
-    for img in slide.get("images", [])
-    if img.get("titre") or img.get("observations") or img.get("series")
-)
-    # Contenu textuel des slides
-    paragraphes = "\n\n".join(
-        "\n".join(slide.get("contenu", []))
-        for slide in slides_list
-        if slide.get("contenu")
-    )
+    ordre_du_jour = agenda_group.get("ordre_du_jour") or "Non défini"
+    lines = [
+        f"Ordre du jour: {ordre_du_jour}",
+        f"Nombre de slides: {len(slides_list)}",
+        "",
+    ]
 
-    # Tableaux formatés
-    tableaux_text = ""
     for slide in slides_list:
-        for table in slide.get("tableaux", []):
-            lignes = table.get("lignes", [])
-            if lignes:
-                tableaux_text += "\n" + "\n".join(
-                    " | ".join(str(cell) for cell in row)
-                    for row in lignes
-                )
+        slide_index = slide.get("index") or slide.get("slide_index", "?")
+        slide_titre = slide.get("titre") or slide.get("slide_title") or "Sans titre"
 
-    # Points clés et actions (si présents)
-    points_cles = "\n".join(
-        f"- {item}"
-        for slide in slides_list
-        for item in slide.get("points_cles", [])
-    )
+        lines.append("=" * 50)
+        lines.append(f"SLIDE {slide_index}: {slide_titre}")
+        lines.append("=" * 50)
 
-    actions = "\n".join(
-        f"- {item}"
-        for slide in slides_list
-        for item in slide.get("elements_actionnables", [])
-    )
+        # Contenu texte
+        contenu = slide.get("contenu") or []
+        if isinstance(contenu, str):
+            contenu = [contenu]
+        if contenu:
+            lines.append("Contenu:")
+            lines.extend(f"  {c}" for c in contenu if c)
 
-    return (
-        f"Ordre du jour: {agenda_group.get('ordre_du_jour')}\n"
-        f"Slides couvertes: {slides or 'aucune'}\n\n"
-        f"Contenu:\n{paragraphes or 'Aucun contenu'}\n\n"
-        f"Tableaux:\n{tableaux_text or 'Aucun tableau'}\n\n"
-        f"Graphiques analysés:\n{images_text or 'Aucun graphique analysé'}\n\n"
-        f"Points cles:\n{points_cles or '- Aucun'}\n\n"
-        f"Elements actionnables:\n{actions or '- Aucun'}"
-    )
+        # Tableaux
+        tableaux = slide.get("tableaux") or []
+        if tableaux:
+            lines.append("Tableaux:")
+            for table in tableaux:
+                if isinstance(table, str):
+                    lines.append(f"  {table}")
+                elif isinstance(table, dict):
+                    lignes = table.get("lignes") or []
+                    if lignes:
+                        for row in lignes:
+                            lines.append("  " + " | ".join(str(cell) for cell in row))
+
+        # Graphiques natifs
+        graphiques = slide.get("graphiques") or []
+        if graphiques:
+            lines.append("Graphiques:")
+            for g in graphiques:
+                if isinstance(g, str):
+                    lines.append(f"  {g}")
+                elif isinstance(g, dict):
+                    lines.append(f"  {_format_chart(g)}")
+
+        # Images analysées (Groq/SmolVLM)
+        # Fallback: analysed slides store raw payload under "sources"
+        images = slide.get("images") or slide.get("sources", {}).get("images") or []
+
+        formatted_images = []
+        for img in images:
+            if isinstance(img, str) and img.strip():
+                formatted_images.append(img)
+            elif isinstance(img, dict) and (
+                img.get("titre") or img.get("data") or
+                img.get("observations") or img.get("series")
+            ):
+                formatted_images.append(_format_image_for_prompt(img))
+
+        if formatted_images:
+            lines.append("Images analysées:")
+            for img in formatted_images:
+                lines.append(f"  {img}")
+
+        # Paragraphe déjà rédigé (si slide_paragraph a été appelé avant)
+        paragraphe = slide.get("paragraphe") or ""
+        if paragraphe:
+            lines.append("Paragraphe rédigé:")
+            lines.append(f"  {paragraphe}")
+
+        # Points clés / actions (si présents)
+        points_cles = slide.get("points_cles") or []
+        if points_cles:
+            lines.append("Points clés:")
+            lines.extend(f"  - {item}" for item in points_cles)
+
+        elements_actionnables = slide.get("elements_actionnables") or []
+        if elements_actionnables:
+            lines.append("Éléments actionnables:")
+            lines.extend(f"  - {item}" for item in elements_actionnables)
+
+        lines.append("")
+
+    return "\n".join(lines)
 def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> dict[str, any]:
     analysis_input = build_agenda_analysis_input(agenda_group)
     slides_list = agenda_group.get("slides", [])
@@ -379,7 +568,7 @@ def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> 
 
     if use_llm:
         print("🚀 Appel LLM...")
-        llm_result = _post_ollama_json(AGENDA_ANALYSIS_SYSTEM, analysis_input, max_tokens=1400)
+        llm_result = _post_ollama_json(AGENDA_ANALYSIS_SYSTEM, analysis_input, max_tokens=1200)
         
         print(f"\n📤 RÉPONSE LLM RAW: {llm_result}")
         print(f"📤 TYPE: {type(llm_result)}")
@@ -393,11 +582,15 @@ def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> 
 
         if llm_result and llm_result.get("analyse"):
             print("✅ Utilisation résultat LLM")
+            print(f"\n📄 PARAGRAPHE PV:\n{llm_result.get('paragraphe_pv') or llm_result.get('analyse', '')}")
+            print(f"\n📌 CONSTATS: {llm_result.get('constats', [])}")
+            print(f"\n⚠️  RISQUES: {llm_result.get('risques', [])}")
             return {
                 "ordre_du_jour": agenda_group.get("ordre_du_jour"),
                 "input_analyse": analysis_input,
                 "analyse": llm_result.get("analyse", ""),
-                "constats": [
+                "paragraphe_pv": llm_result.get("paragraphe_pv", ""),
+                "constats": llm_result.get("constats") or [
                     item
                     for slide in slides_list
                     for item in slide.get("points_cles", [])
@@ -413,6 +606,13 @@ def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> 
         else:
             print("⚠️ Fallback heuristique")
 
+    # Points clés/actions peuvent être au niveau racine (pipeline) ou dans chaque slide (full service)
+    fallback_constats = agenda_group.get("points_cles") or [
+        item for slide in slides_list for item in slide.get("points_cles", [])
+    ]
+    fallback_actions = agenda_group.get("elements_actionnables") or [
+        item for slide in slides_list for item in slide.get("elements_actionnables", [])
+    ]
     return {
         "ordre_du_jour": agenda_group.get("ordre_du_jour"),
         "input_analyse": analysis_input,
@@ -420,9 +620,9 @@ def analyze_agenda_group(agenda_group: dict[str, any], use_llm: bool = True) -> 
             "Les paragraphes rattaches a cet ordre du jour ont ete consolides "
             "pour alimenter une analyse transverse."
         ),
-        "constats": agenda_group.get("points_cles", [])[:8],
+        "constats": fallback_constats[:8],
         "risques": [],
-        "actions_suggerees": agenda_group.get("elements_actionnables", [])[:8],
+        "actions_suggerees": fallback_actions[:8],
         "generation_mode": "heuristic",
     }
 
