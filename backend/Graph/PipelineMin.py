@@ -1,4 +1,4 @@
-"""Minimal chart extraction pipeline (OCR + optional Ollama/Groq/SmolVLM helpers)."""
+"""Minimal chart extraction pipeline (OCR + optional Ollama/SmolVLM helpers)."""
 
 import base64
 import io
@@ -13,7 +13,6 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-from Graph.MeuilleurVersionGraph import describe_image_groq
 from ocr import (
     detect_chart_type,
     extract_axis_labels,
@@ -33,7 +32,6 @@ OLLAMA_VISION_IMAGE_SIZE = int(os.environ.get("OLLAMA_VISION_IMAGE_SIZE", "512")
 OLLAMA_VISION_NUM_CTX = int(os.environ.get("OLLAMA_VISION_NUM_CTX", "1024"))
 OLLAMA_VISION_NUM_BATCH = int(os.environ.get("OLLAMA_VISION_NUM_BATCH", "64"))
 OLLAMA_VISION_TIMEOUT = int(os.environ.get("OLLAMA_VISION_TIMEOUT", "600"))
-GROQ_VISION_MODEL = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 
 QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen2.5vl:3b")
 
@@ -389,36 +387,6 @@ def extract_chart_with_ollama(image_input: str | bytes) -> dict:
     result = _parse_robust_json(raw, source_label="ollama")
     result = _validate_and_fix_chart_json(result)
     result.setdefault("source", "ollama")
-    return result
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Extraction via Groq
-# ──────────────────────────────────────────────────────────────────────────────
-
-def extract_chart_with_groq(image_input: str | bytes) -> dict:
-    if isinstance(image_input, bytes):
-        image_bytes = image_input
-    else:
-        with open(image_input, "rb") as f:
-            image_bytes = f.read()
-
-    image_bytes = _resize_image(image_bytes)
-
-    logger.info(
-        "Groq vision start model=%s image_kb=%.0f",
-        GROQ_VISION_MODEL,
-        len(image_bytes) / 1024,
-    )
-    started = time.monotonic()
-
-    content = describe_image_groq(image_bytes)
-
-    logger.info("Groq vision done in %.1fs raw_response=%r", time.monotonic() - started, content[:300])
-
-    result = _parse_robust_json(content, source_label="groq")
-    result = _validate_and_fix_chart_json(result)
-    result.setdefault("source", "groq")
     return result
 
 
