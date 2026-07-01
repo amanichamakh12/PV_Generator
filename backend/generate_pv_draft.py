@@ -366,9 +366,25 @@ def _heuristic_slide_paragraph(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def generate_slide_paragraph_heuristic(slide: dict[str, Any]) -> dict[str, Any]:
+    """Paragraphe par slide sans appel LLM (templates), coût quasi nul."""
+    payload = _build_slide_payload(slide)
+    heuristic = _heuristic_slide_paragraph(payload)
+    return {
+        "slide_index": payload.get("index"),
+        "slide_title": payload.get("titre"),
+        "ordre_du_jour": payload.get("ordre_du_jour"),
+        "sources": payload,
+        "paragraphe": heuristic["paragraphe"],
+        "points_cles": heuristic["points_cles"],
+        "elements_actionnables": heuristic["elements_actionnables"],
+        "generation_mode": "heuristic",
+    }
+
+
 def generate_slide_paragraph(slide: dict[str, Any]) -> dict[str, Any]:
     payload = _build_slide_payload(slide)
-    llm_result = _post_llama_cpp_json(
+    llm_result = _post_ollama_json(
         SLIDE_PARAGRAPH_SYSTEM,
         "Donnees slide:\n" + json.dumps(payload, ensure_ascii=False, indent=2),
         max_tokens=500,
@@ -385,17 +401,7 @@ def generate_slide_paragraph(slide: dict[str, Any]) -> dict[str, Any]:
                 "generation_mode": "llm",
             }
 
-    heuristic = _heuristic_slide_paragraph(payload)
-    return {
-        "slide_index": payload.get("index"),
-        "slide_title": payload.get("titre"),
-        "ordre_du_jour": payload.get("ordre_du_jour"),
-        "sources": payload,
-        "paragraphe": heuristic["paragraphe"],
-        "points_cles": heuristic["points_cles"],
-        "elements_actionnables": heuristic["elements_actionnables"],
-        "generation_mode": "heuristic",
-    }
+    return generate_slide_paragraph_heuristic(slide)
 
 
 def group_slide_paragraphs_by_agenda(slide_paragraphs: list[dict[str, any]]) -> list[dict[str, any]]:
