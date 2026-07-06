@@ -25,6 +25,12 @@ front/risk-committee-pv-generation/node_modules
 front/risk-committee-pv-generation/.next/
 front/risk-committee-pv-generation/.DS_Store
 
-backend/IA_modeles/smolvlm-base/
+backend/IA_modeles/
+backend/IA_modeles.zip
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
 
 
