@@ -1,0 +1,9 @@
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/*.pyd
+backend/.venv/
+backend/venv/
+backend/.pytest_cache/
+backend/chart_testset/
+backend/modeles/
