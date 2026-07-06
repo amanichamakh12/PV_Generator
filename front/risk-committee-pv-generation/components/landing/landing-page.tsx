@@ -14,7 +14,10 @@ export function LandingPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-65px)] flex flex-col items-center justify-center bg-sidebar px-6 py-12">
+    <div
+      className="min-h-[calc(100vh-65px)] flex flex-col items-center justify-center bg-sidebar px-6 py-12"
+      style={{ fontFamily: 'var(--font-cairo)' }}
+    >
 
       {/* Logo */}
       <div className="mb-8 bg-white rounded-2xl px-8 py-5 shadow-lg">

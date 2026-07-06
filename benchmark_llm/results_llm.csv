@@ -1,0 +1,12 @@
+﻿cas_test,modele,temps_secondes,conformite_schema_pct,erreur,sortie_brute
+analyse_odj,qwen2.5:3b,162.38,80.0,,"{
+  ""analyse"": ""Le taux de défaut global a atteint 4.1% au T4 2024, en progression de 3.2 points par rapport à 3.8% au T3. Cette évolution suggère une tendance à la hausse du risque de non-rendement des créances."",
+  ""constats"": [""Taux de défaut global : 4.1% (T4) contre 3.8% (T3)"", ""Évolution progressive : +3.2 points""],
+  ""risques"": [""Hausse du taux de défaut"", ""Défis en matière de provisionnement pour les créances Stage 2 et 3""],
+  ""actions_suggerees"": [""Renforcement du suivi des dossiers Stage 2"", ""Révision des seuils de provisionnement""]
+}"
+analyse_odj,qwen2.5:7b,,,[WinError 10054] Une connexion existante a dû être fermée par l’hôte distant,
+analyse_odj,qwen3:4b,,,"Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download",
+reformulation_notes,qwen2.5:3b,,,"Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download",
+reformulation_notes,qwen2.5:7b,,,"Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download",
+reformulation_notes,qwen3:4b,,,"Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download",
