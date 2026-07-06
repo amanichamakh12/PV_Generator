@@ -24,3 +24,7 @@ trash
 front/risk-committee-pv-generation/node_modules
 front/risk-committee-pv-generation/.next/
 front/risk-committee-pv-generation/.DS_Store
+
+backend/IA_modeles/smolvlm-base/
+
+
