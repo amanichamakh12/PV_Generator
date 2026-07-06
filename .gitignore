@@ -7,3 +7,20 @@ backend/venv/
 backend/.pytest_cache/
 backend/chart_testset/
 backend/modeles/
+
+
+
+# v0 sandbox internal files
+front/risk-committee-pv-generation/__v0_runtime_loader.js
+front/risk-committee-pv-generation/__v0_devtools.tsx
+front/risk-committee-pv-generation/__v0_jsx-dev-runtime.ts
+front/risk-committee-pv-generation/.snowflake/
+front/risk-committee-pv-generation/.v0-trash/
+front/risk-committee-pv-generation/.vercel/
+trash
+
+
+# Common ignores
+front/risk-committee-pv-generation/node_modules
+front/risk-committee-pv-generation/.next/
+front/risk-committee-pv-generation/.DS_Store
