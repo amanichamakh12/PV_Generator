@@ -6,7 +6,10 @@ backend/.venv/
 backend/venv/
 backend/.pytest_cache/
 backend/chart_testset/
-backend/IA_modeles/
+backend/IA_modeles/smolvlm-base
+backend/IA_modeles/smolvlm-graphes-v2
+backend/IA_modeles/smolvlm-graphes-v2-merged
+
 backend/data/*.db
 
 .env

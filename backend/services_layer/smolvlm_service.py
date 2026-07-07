@@ -12,9 +12,6 @@ from transformers import AutoProcessor, AutoModelForVision2Seq
 torch.set_num_threads(os.cpu_count() or 1)
 
 logger = logging.getLogger(__name__)
-
-#Le modèle entraîné est disponible sur Hugging Face à [lien]
-# à creer un dossier backend/IA_modeles et a télécharger dedans backend/IA_modeles/smolvlm-graphes-v2-merged/
 MODEL_DIR = os.environ.get("SMOLVLM_ADAPTER_PATH", "IA_modeles/smolvlm-graphes-v2-merged")
 
 PROMPT = """Analyse ce graphique et renvoie son contenu sous forme JSON.
