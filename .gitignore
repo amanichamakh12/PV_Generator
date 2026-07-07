@@ -6,6 +6,13 @@ backend/.venv/
 backend/venv/
 backend/.pytest_cache/
 backend/chart_testset/
+backend/IA_modeles/
+backend/data/*.db
+
+.env
+.env.*
+!.env.example
+!.env.prod.example
 
 
 
@@ -28,7 +35,14 @@ front/risk-committee-pv-generation/.DS_Store
 *.safetensors
 *.bin
 *.gguf
+*.onnx
 *.pt
 *.pth
+*.safetensors
+
+# Frontend/build artifacts
+front/risk-committee-pv-generation/node_modules/
+front/risk-committee-pv-generation/.next/
+front.7z
 
 
